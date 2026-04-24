@@ -1,4 +1,10 @@
   try {
+   const userEmail = document.getElementById('userEmail').value.trim();
+                        const userName = document.getElementById('userName').value.trim();
+                        const userPassword = document.getElementById('userPassword').value;
+                        const userRole = document.getElementById('userRole').value;
+                        const userDepartment = document.getElementById('userDepartment').value;
+ 
                         const loginUrl = `${window.location.origin}/login`;
                         const subject = 'Welcome to Support Portal - Your Account Has Been Created';
                         const body = `
