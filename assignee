@@ -1,0 +1,46 @@
+
+                            // Send email notification to assigned technicians
+                            const title = editTicketTitle?.value || '';
+                            const ticketUrl = `${window.location.origin}/tickets?ticket=${encodeURIComponent(id)}`;
+                            const subject = `You have been assigned to ticket: ${title}`;
+                            const body = `
+                                <h3>New Ticket Assignment</h3>
+                                <p>You have been assigned to the following ticket:</p>
+                                <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
+                                    <tr><td><strong>Ticket ID</strong></td><td>${id}</td></tr>
+                                    <tr><td><strong>Title</strong></td><td>${title}</td></tr>
+                                    <tr><td><strong>Priority</strong></td><td>${editTicketPriority?.value || ''}</td></tr>
+                                    <tr><td><strong>Status</strong></td><td>${editTicketStatus?.value || ''}</td></tr>
+                                    <tr><td><strong>Due Date</strong></td><td>${editTicketDueDate?.value || ''}</td></tr>
+                                </table>
+                                <p><a href="${ticketUrl}" style="background: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Ticket</a></p>
+                                <p>Please review and take necessary action.</p>
+                                <p>Best regards,<br>Support Team</p>
+                            `;
+
+                            // Send email to each assigned technician
+                            for (const email of selectedEmails) {
+                                try {
+                                    const formData = new URLSearchParams();
+                                    formData.append('to', email);
+                                    formData.append('subject', subject);
+                                    formData.append('body', body);
+
+                                    const response = await fetch('send_email.php', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/x-www-form-urlencoded'
+                                        },
+                                        body: formData.toString()
+                                    });
+
+                                    const result = await response.json();
+                                    if (!result.success) {
+                                        console.error('Failed to send email to', email, result);
+                                    } else {
+                                        console.log('Email sent successfully to', email);
+                                    }
+                                } catch (emailErr) {
+                                    console.error('Error sending email to', email, emailErr);
+                                }
+                            }
