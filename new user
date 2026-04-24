@@ -1,0 +1,40 @@
+  try {
+                        const loginUrl = `${window.location.origin}/login`;
+                        const subject = 'Welcome to Support Portal - Your Account Has Been Created';
+                        const body = `
+                            <h3>Welcome to Support Portal!</h3>
+                            <p>Hello ${fullName},</p>
+                            <p>Your account has been created successfully. Here are your login details:</p>
+                            <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
+                                <tr><td><strong>Email</strong></td><td>${email}</td></tr>
+                                <tr><td><strong>Password</strong></td><td>${password}</td></tr>
+                                <tr><td><strong>Role</strong></td><td>${role}</td></tr>
+                                <tr><td><strong>Department</strong></td><td>${department || 'N/A'}</td></tr>
+                            </table>
+                            <p><a href="${loginUrl}" style="background: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Login to Support Portal</a></p>
+                            <p>Please login and change your password after your first login.</p>
+                            <p>Best regards,<br>Support Team</p>
+                        `;
+
+                        const formData = new URLSearchParams();
+                        formData.append('to', email);
+                        formData.append('subject', subject);
+                        formData.append('body', body);
+
+                        const emailResponse = await fetch('send_email.php', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded'
+                            },
+                            body: formData.toString()
+                        });
+
+                        const emailResult = await emailResponse.json();
+                        if (emailResult.success) {
+                            console.log('Welcome email sent successfully to', email);
+                        } else {
+                            console.error('Failed to send welcome email to', email, emailResult);
+                        }
+                    } catch (emailErr) {
+                        console.error('Error sending welcome email to', email, emailErr);
+                    }
