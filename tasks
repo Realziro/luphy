@@ -500,7 +500,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['open_create_modal']))
 
                 <div class="mb-2">
                     <label class="form-label">Assigned To</label>
-                    <input type="text" class="form-control" id="editTaskAssignedTo">
+                    <select class="form-select" id="editTaskAssignedTo">
+                        <option value="">Unassigned</option>
+                    </select>
                 </div>
 
                 <div class="mb-2">
@@ -712,6 +714,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['open_create_modal']))
         console.error('Error loading users:', error);
     }
 }
+
+async function loadUsersIntoEditTaskDropdown() {
+    try {
+        const { data, error } = await supabase
+            .from('users')
+            .select('id, email, full_name')
+            .order('full_name', { ascending: true });
+
+        if (error) throw error;
+
+        const select = document.getElementById('editTaskAssignedTo');
+        select.innerHTML = `<option value="">Unassigned</option>`;
+
+        data.forEach(user => {
+            const name = user.full_name || user.email;
+            const option = document.createElement('option');
+            option.value = user.email;
+            option.textContent = name;
+            select.appendChild(option);
+        });
+
+    } catch (error) {
+        console.error('Error loading users for edit dropdown:', error);
+    }
+}
         
         async function loadTechnicians() {
     const { data, error } = await supabase
@@ -747,8 +774,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
       
-      document.getElementById('editTaskBtn').addEventListener('click', () => {
+      document.getElementById('editTaskBtn').addEventListener('click', async () => {
     if (!currentTask) return;
+
+    // Load users into edit dropdown
+    await loadUsersIntoEditTaskDropdown();
 
     // Fill edit modal
     document.getElementById('editTaskId').value = currentTask.id;
@@ -823,6 +853,9 @@ async function updateTask() {
     const assignedTo = document.getElementById('editTaskAssignedTo').value;
     const dueDate = document.getElementById('editTaskDueDate').value;
 
+    // Store old assigned value for comparison
+    const oldAssignedTo = currentTask?.assigned_to || null;
+
     if (!title) {
         showAlert('Title is required', 'danger');
         return;
@@ -857,6 +890,40 @@ async function updateTask() {
         }
 
         console.log('Updated row:', data);
+
+        // Send email notification if assigned technician changed
+        if (assignedTo && assignedTo !== oldAssignedTo && data?.length) {
+            try {
+                const task = data[0];
+                const jobCardUrl = `${window.location.origin}/job_cards?id=${currentJobCard.id}`;
+
+                console.log("Sending task reassignment email to:", assignedTo);
+
+                const subject = `Task Re-assigned: ${title}`;
+                const body = `
+                    <h3>Task Re-assignment</h3>
+                    <p>You have been assigned to a task: <strong>${title}</strong></p>
+                    <p><a href="${jobCardUrl}">View Job Card</a></p>
+                    <p>Please login to the system to check details.</p>
+                `;
+
+                const res = await fetch('sendmail.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: new URLSearchParams({
+                        to: assignedTo,
+                        subject: subject,
+                        body: body
+                    })
+                });
+
+                const result = await res.text();
+                console.log("MAIL RESPONSE:", result);
+
+            } catch (emailErr) {
+                console.error('Error sending task email:', emailErr);
+            }
+        }
 
         bootstrap.Modal.getInstance(document.getElementById('editTaskModal')).hide();
 
@@ -1585,6 +1652,41 @@ async function createJobCard() {
                 .update(updatePayload)
                 .eq('id', currentJobCard.id)
                 .select();
+
+            // Send email notification if technician changed
+            const oldTechnician = currentJobCard.technician_email;
+            if (technicianEmail && technicianEmail !== oldTechnician && result.data?.length) {
+                try {
+                    const jobCard = result.data[0];
+                    const jobCardUrl = `${window.location.origin}/job_cards?id=${jobCard.id}`;
+
+                    console.log("Sending job card update email to:", technicianEmail);
+
+                    const subject = `Updated Job Card Assigned: ${title}`;
+                    const body = `
+                        <h3>Job Card Re-assignment</h3>
+                        <p>You have been assigned to an updated job card: <strong>${title}</strong></p>
+                        <p><a href="${jobCardUrl}">View Job Card</a></p>
+                        <p>Please login to the system to check details.</p>
+                    `;
+
+                    const res = await fetch('sendmail.php', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: new URLSearchParams({
+                            to: technicianEmail,
+                            subject: subject,
+                            body: body
+                        })
+                    });
+
+                    const mailResult = await res.text();
+                    console.log("MAIL RESPONSE:", mailResult);
+
+                } catch (emailErr) {
+                    console.error('Error sending job card update email:', emailErr);
+                }
+            }
         }
 
         // =========================
@@ -1628,6 +1730,42 @@ async function createJobCard() {
                     user_id: currentUser.id,
                     role: 'owner'
                 }]);
+        }
+
+        // =========================
+        // Send email notification to technician
+        // =========================
+        if (technicianEmail && data?.length) {
+            try {
+                const jobCard = data[0];
+                const jobCardUrl = `${window.location.origin}/job_cards?id=${jobCard.id}`;
+
+                console.log("Sending job card email to:", technicianEmail);
+
+                const subject = `New Job Card Assigned: ${title}`;
+                const body = `
+                    <h3>New Job Card Assignment</h3>
+                    <p>You have been assigned to a new job card: <strong>${title}</strong></p>
+                    <p><a href="${jobCardUrl}">View Job Card</a></p>
+                    <p>Please login to the system to check details.</p>
+                `;
+
+                const res = await fetch('sendmail.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: new URLSearchParams({
+                        to: technicianEmail,
+                        subject: subject,
+                        body: body
+                    })
+                });
+
+                const result = await res.text();
+                console.log("MAIL RESPONSE:", result);
+
+            } catch (emailErr) {
+                console.error('Error sending job card email:', emailErr);
+            }
         }
 
         // =========================
@@ -1741,6 +1879,7 @@ async function editJobCard() {
     document.getElementById('jobCardPriority').value = currentJobCard.priority || 'low';
     document.getElementById('jobCardPlannedStartDate').value =
         toDateTimeLocalString(currentJobCard.planned_start_date || '');
+    document.getElementById('jobCardTechnicianEmail').value = currentJobCard.technician_email || '';
 
     // ⚠️ Attachments (optional preview only)
     // You can later render previews if needed
