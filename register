@@ -1,0 +1,384 @@
+<?php
+session_start();
+
+require_once __DIR__ . '/../config.php';
+
+// If already logged in, redirect to dashboard
+if (isset($_SESSION['user_email'])) {
+    header('Location:   dashboard');
+    exit;
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Support System - Register</title>
+
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous"
+    />
+    <link rel="icon" type="image/svg+xml" href="https://www.texolenergies.com/assets/Texol_icon-AiPT1Z13.png" />
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: #0f172a;
+        }
+
+        .register-wrapper {
+            width: 100%;
+            max-width: 420px;
+            padding: 32px 28px 30px;
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow:
+                0 18px 45px rgba(15, 23, 42, 0.28),
+                0 0 0 1px rgba(148, 163, 184, 0.12);
+        }
+
+        .brand {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .brand-logo {
+            height: 40px;
+            margin-bottom: 8px;
+        }
+
+        .brand-subtitle {
+            margin-top: 2px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .register-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #111827;
+        }
+
+        .register-description {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 18px;
+        }
+
+        .field {
+            margin-bottom: 14px;
+        }
+
+        .field label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .field input,
+        .field select {
+            width: 100%;
+            padding: 9px 11px;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            font-size: 14px;
+            color: #111827;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+            background-color: #f9fafb;
+        }
+
+        .field input:focus,
+        .field select:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.3);
+            background-color: #ffffff;
+        }
+
+        .register-actions {
+            margin-top: 16px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: none;
+            background: linear-gradient(135deg, #4f46e5, #6366f1);
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+            box-shadow: 0 12px 25px rgba(79, 70, 229, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.03);
+            box-shadow: 0 16px 32px rgba(79, 70, 229, 0.5);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+            box-shadow: 0 8px 18px rgba(79, 70, 229, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .helper-text {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #9ca3af;
+            text-align: center;
+        }
+
+        .error-message {
+            margin-bottom: 12px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background-color: #fef2f2;
+            color: #b91c1c;
+            font-size: 13px;
+            border: 1px solid #fecaca;
+        }
+
+        @media (max-width: 480px) {
+            .register-wrapper {
+                margin: 12px;
+                padding: 26px 20px 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="register-wrapper">
+        <div class="brand">
+            <img
+                src="https://www.texolenergies.com/assets/Logo-paGHQfRF.svg"
+                alt="Texol Energies"
+                class="brand-logo"
+            />
+            <div class="brand-subtitle">Secure access portal</div>
+        </div>
+
+        <h1 class="register-title">Create Account</h1>
+        <p class="register-description">Join the Work Card System</p>
+
+        <div id="registerAlert" class="error-message d-none"></div>
+
+        <form id="registerForm">
+            <div class="field">
+                <label for="fullName">Full Name</label>
+                <input
+                    type="text"
+                    id="fullName"
+                    placeholder="Jane Doe"
+                    required
+                />
+            </div>
+            <div class="field">
+                <label for="email">Email</label>
+                <input
+                    type="email"
+                    id="email"
+                    placeholder="jane.doe@texol.com"
+                    required
+                />
+            </div>
+            <div class="field">
+                <label for="department">Department</label>
+                <select id="department" required>
+                    <option value="" selected disabled>Loading departments...</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="role">Role</label>
+                <select id="role" required>
+                    <option value="staff" selected>Staff</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    placeholder="Create a password"
+                    required
+                    minlength="6"
+                />
+            </div>
+            <div class="field">
+                <label for="confirmPassword">Confirm Password</label>
+                <input
+                    type="password"
+                    id="confirmPassword"
+                    placeholder="Confirm your password"
+                    required
+                    minlength="6"
+                />
+            </div>
+
+            <div class="register-actions">
+                <button type="submit" class="btn-primary" id="registerBtn">Create Account</button>
+            </div>
+        </form>
+
+        <div class="helper-text">
+            Already have an account? <a href="login" style="color: #0d6efd; text-decoration: none;">Login here</a>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script type="module">
+        import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+        const supabaseUrl = '<?php echo defined("SUPABASE_URL") ? SUPABASE_URL : ""; ?>';
+        const supabaseKey = '<?php echo defined("SUPABASE_ANON_KEY") ? SUPABASE_ANON_KEY : ""; ?>';
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const form = document.getElementById('registerForm');
+        const registerBtn = document.getElementById('registerBtn');
+        const alertBox = document.getElementById('registerAlert');
+        const departmentSelect = document.getElementById('department');
+
+        function escapeHtml(value) {
+            return (value || '')
+                .toString()
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function showAlert(type, message) {
+            if (!alertBox) return;
+            alertBox.className = `alert alert-${type} mb-3`;
+            alertBox.textContent = message;
+            alertBox.classList.remove('d-none');
+        }
+
+        function hideAlert() {
+            if (!alertBox) return;
+            alertBox.classList.add('d-none');
+        }
+
+        async function loadDepartments() {
+            try {
+                const { data, error } = await supabase
+                    .from('departments')
+                    .select('name')
+                    .order('name', { ascending: true });
+
+                if (error) {
+                    console.error('Failed to load departments:', error.message);
+                    return;
+                }
+
+                departmentSelect.innerHTML = '<option value="" selected disabled>Select Department</option>';
+                data.forEach(dept => {
+                    const option = document.createElement('option');
+                    option.value = dept.name;
+                    option.textContent = dept.name;
+                    departmentSelect.appendChild(option);
+                });
+            } catch (err) {
+                console.error('Unexpected error fetching departments:', err);
+            }
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            hideAlert();
+
+            const fullName = document.getElementById('fullName')?.value.trim() || '';
+            const email = document.getElementById('email')?.value.trim() || '';
+            const department = document.getElementById('department')?.value || '';
+            const role = document.getElementById('role')?.value || '';
+            const password = document.getElementById('password')?.value || '';
+            const confirmPassword = document.getElementById('confirmPassword')?.value || '';
+
+            if (!fullName || !email || !department || !role || !password || !confirmPassword) {
+                showAlert('warning', 'Please fill in all required fields.');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                showAlert('warning', 'Passwords do not match.');
+                return;
+            }
+
+            if (password.length < 6) {
+                showAlert('warning', 'Password must be at least 6 characters.');
+                return;
+            }
+
+            registerBtn.disabled = true;
+            registerBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Creating Account...';
+
+            try {
+                // Create user record in users table (no Supabase Auth signup to avoid email rate limits)
+                const { error: userError } = await supabase
+                    .from('users')
+                    .insert([{
+                        email: email,
+                        full_name: fullName,
+                        department: department,
+                        role: role,
+                        temp_password: password,
+                        status: 'active'
+                    }]);
+
+                if (userError) {
+                    showAlert('danger', userError.message || 'Failed to create user record.');
+                    return;
+                }
+
+                showAlert('success', 'Account created successfully! Please login with your credentials.');
+                form.reset();
+
+                // Redirect to login after 2 seconds
+                setTimeout(() => {
+                    window.location.href = 'login';
+                }, 2000);
+
+            } catch (err) {
+                showAlert('danger', 'Unexpected error creating account.');
+                console.error(err);
+            } finally {
+                registerBtn.disabled = false;
+                registerBtn.innerHTML = 'Create Account';
+            }
+        });
+
+        // Load departments
+        loadDepartments();
+    </script>
+</body>
+</html>
