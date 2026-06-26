@@ -1,0 +1,1090 @@
+<?php
+session_start();
+
+// Load env/config (Supabase keys, etc.)
+require_once __DIR__ . '/../config.php';
+
+// Protect page: only allow access when logged in
+if (! isset($_SESSION['user_email'])) {
+    header('Location:   login');
+    exit;
+}
+
+// Set active menu for sidebar
+$activeMenu = 'mytickets';
+
+// Redirect admins to tickets page
+if (isset($_SESSION['user_role']) && strtolower($_SESSION['user_role']) === 'admin') {
+    header('Location:   tickets');
+    exit;
+}
+
+// Fetch departments from database
+$departments = [];
+if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== '' && SUPABASE_ANON_KEY !== '') {
+    $supabaseUrl = rtrim(SUPABASE_URL, '/');
+    $supabaseKey = SUPABASE_ANON_KEY;
+
+    $query = http_build_query([
+        'select' => 'id,name',
+        'order' => 'name.asc'
+    ]);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $supabaseUrl . '/rest/v1/departments?' . $query,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'apikey: ' . $supabaseKey,
+            'Authorization: Bearer ' . $supabaseKey,
+            'Accept: application/json',
+        ],
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && $response) {
+        $departments = json_decode($response, true) ?: [];
+    }
+}
+
+// Fetch categories from database
+$categories = [];
+if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== '' && SUPABASE_ANON_KEY !== '') {
+    $supabaseUrl = rtrim(SUPABASE_URL, '/');
+    $supabaseKey = SUPABASE_ANON_KEY;
+
+    $query = http_build_query([
+        'select' => 'id,name',
+        'order' => 'name.asc'
+    ]);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $supabaseUrl . '/rest/v1/categories?' . $query,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'apikey: ' . $supabaseKey,
+            'Authorization: Bearer ' . $supabaseKey,
+            'Accept: application/json',
+        ],
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && $response) {
+        $categories = json_decode($response, true) ?: [];
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Meta -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Work Card System - My Tickets</title>
+
+    <!-- Bootstrap 5 CSS CDN -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous"
+    />
+
+    <!-- Bootstrap Icons -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    />
+
+    <!-- DataTables CSS -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css"
+    />
+
+    <!-- Reuse layout styles -->
+    <link rel="stylesheet" href="sidebar.css" />
+
+    <style>
+        .drag-drop-zone {
+            border: 2px dashed #dee2e6 !important;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .drag-drop-zone:hover {
+            border-color: #0d6efd !important;
+            background-color: #f8f9fa !important;
+        }
+        
+        .drag-drop-zone.border-primary {
+            border-color: #0d6efd !important;
+            background-color: #e7f1ff !important;
+        }
+        
+        .drag-drop-zone.bg-primary-subtle {
+            background-color: #e7f1ff !important;
+        }
+        
+        .drag-drop-zone.drag-over {
+            border-color: #0d6efd !important;
+            background-color: #e7f1ff !important;
+            transform: scale(1.02);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <?php include 'partials/sidebar.php'; ?>
+
+    <!-- Main Content -->
+    <div class="main-content flex-grow-1 d-flex flex-column">
+        <!-- Top Navbar -->
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom main-navbar px-3 px-lg-4">
+            <!-- Sidebar toggle (hamburger) on small screens -->
+            <button
+                class="btn btn-outline-secondary d-lg-none me-2"
+                type="button"
+                id="sidebarToggle"
+                aria-label="Toggle sidebar"
+            >
+                <i class="bi bi-list"></i>
+            </button>
+
+            <a class="navbar-brand fw-semibold d-none d-sm-inline d-flex align-items-center gap-2" href="#">
+                <span id="pageTitle">My Tickets</span>
+            </a>
+
+            <div class="ms-auto d-flex align-items-center gap-3">
+                <?php include __DIR__ . '/partials/notifications.php'; ?>
+                <?php include __DIR__ . '/partials/navbar_user.php'; ?>
+            </div>
+        </nav>
+        <!-- /Top Navbar -->
+
+        <!-- Main Content Area -->
+        <main class="flex-grow-1 py-4 py-md-5 px-3 px-lg-4 content-area">
+            <div class="container-fluid">
+            <div class="row">
+                <!-- My Tickets List -->
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-white">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-ticket-detailed me-2"></i>My Tickets
+                                </h5>
+                                <div>
+                                    <button class="btn btn-sm btn-primary me-2" id="createTicketBtn">
+                                        <i class="bi bi-plus-circle me-1"></i>Create New Ticket
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" id="refreshTicketsBtn">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                                    <input type="text" class="form-control form-control-sm" id="filterTitle" placeholder="Search by title or ticket ID...">
+                                </div>
+                                <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                                    <select class="form-select form-select-sm" id="filterStatus">
+                                        <option value="">All Status</option>
+                                        <option value="Open">Open</option>
+                                        <option value="In Progress">In Progress</option>
+                                        <option value="Resolved">Resolved</option>
+                                        <option value="Closed">Closed</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                                    <select class="form-select form-select-sm" id="filterDepartment">
+                                        <option value="">All Departments</option>
+                                        <?php foreach ($departments as $dept): ?>
+                                            <option value="<?php echo htmlspecialchars($dept['name']); ?>"><?php echo htmlspecialchars($dept['name']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                                    <select class="form-select form-select-sm" id="filterPriority">
+                                        <option value="">All Priority</option>
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                        <option value="Critical">Critical</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Ticket ID</th>
+                                            <th>Title</th>
+                                            <th>Department</th>
+                                            <th>Category</th>
+                                            <th>Priority</th>
+                                            <th>Status</th>
+                                            <th>Planned Start</th>
+                                            <th>Planned End</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ticketsTableBody">
+                                        <tr>
+                                            <td colspan="8" class="text-center small text-muted py-3">
+                                                Loading tickets...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>
+        </main>
+    </div>
+
+    <!-- Create Ticket Modal -->
+    <div class="modal fade" id="createTicketModal" tabindex="-1" aria-labelledby="createTicketModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h6 fw-semibold" id="createTicketModalLabel">
+                        Create New Ticket
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="ticketFormAlert" class="alert d-none mb-3" role="alert"></div>
+
+                    <form id="addTicketForm" class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold" for="ticketTitle">
+                                Subject *
+                            </label>
+                            <input type="text" class="form-control form-control-sm" id="ticketTitle" required placeholder="Enter ticket subject" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold" for="ticketDescription">
+                                Description *
+                            </label>
+                            <textarea class="form-control form-control-sm" id="ticketDescription" required rows="4" placeholder="Describe your issue"></textarea>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="ticketDepartment">
+                                Department
+                            </label>
+                            <select class="form-select form-select-sm" id="ticketDepartment">
+                                <option value="">Select Department</option>
+                                <?php foreach ($departments as $dept): ?>
+                                    <option value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>">
+                                        <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="ticketCategory">
+                                Category
+                            </label>
+                            <select class="form-select form-select-sm" id="ticketCategory">
+                                <option value="">Select Category</option>
+                                <?php foreach ($categories as $cat): ?>
+                                    <option value="<?php echo htmlspecialchars($cat['name'], ENT_QUOTES, 'UTF-8'); ?>">
+                                        <?php echo htmlspecialchars($cat['name'], ENT_QUOTES, 'UTF-8'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="ticketPriority">
+                                Priority
+                            </label>
+                            <select class="form-select form-select-sm" id="ticketPriority">
+                                <option value="low">Low</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="ticketPlannedStartDate">
+                                Planned Start Date
+                            </label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="ticketPlannedStartDate" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="ticketPlannedEndDate">
+                                Planned End Date
+                            </label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="ticketPlannedEndDate" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold" for="ticketAttachments">
+                                Attachments
+                            </label>
+                            <div class="drag-drop-zone p-3 text-center rounded" id="dropZone">
+                                <i class="bi bi-cloud-upload fs-4 text-muted"></i>
+                                <p class="small text-muted mb-0">Drag & drop files here or click to browse</p>
+                                <input type="file" id="ticketAttachments" class="d-none" multiple />
+                            </div>
+                            <div id="fileList" class="mt-2"></div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="resetTicketForm">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Form
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" id="submitTicketBtn">
+                        <i class="bi bi-send me-1"></i>Submit Ticket
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Ticket Modal -->
+    <div class="modal fade" id="editTicketModal" tabindex="-1" aria-labelledby="editTicketModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h6 fw-semibold" id="editTicketModalLabel">
+                        Edit Ticket
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="editTicketAlert" class="alert d-none py-2 px-3 mb-3" role="alert"></div>
+
+                    <form id="editTicketForm" class="row g-3">
+                        <input type="hidden" id="editTicketId" />
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold" for="editTicketTitle">Subject *</label>
+                            <input type="text" class="form-control form-control-sm" id="editTicketTitle" required />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold" for="editTicketDescription">Description *</label>
+                            <textarea class="form-control form-control-sm" id="editTicketDescription" rows="4" required></textarea>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketDepartment">Department *</label>
+                            <select class="form-select form-select-sm" id="editTicketDepartment" required>
+                                <option value="">Select department</option>
+                                <?php foreach ($departments as $dept): ?>
+                                    <option value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>">
+                                        <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketCategory">Category</label>
+                            <select class="form-select form-select-sm" id="editTicketCategory">
+                                <option value="">Select category</option>
+                                <?php foreach ($categories as $cat): ?>
+                                    <option value="<?php echo htmlspecialchars($cat['name'], ENT_QUOTES, 'UTF-8'); ?>">
+                                        <?php echo htmlspecialchars($cat['name'], ENT_QUOTES, 'UTF-8'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketPriority">Priority *</label>
+                            <select class="form-select form-select-sm" id="editTicketPriority" required>
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketStatus">Status</label>
+                            <select class="form-select form-select-sm" id="editTicketStatus" required>
+                                <option value="Open">Open</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                                <option value="Closed">Closed</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketPlannedStartDate">Planned Start Date</label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketPlannedStartDate" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketPlannedEndDate">Planned End Date</label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketPlannedEndDate" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketDueDate">Due Date</label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketDueDate" />
+                        </div>
+
+                        <!-- Additional Metadata -->
+                        <div class="col-12">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        <strong>Created:</strong> <span id="editTicketCreatedAt"></span>
+                                    </small>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        <strong>Updated:</strong> <span id="editTicketUpdatedAt"></span>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="viewTicketNotesBtn">
+                        <i class="bi bi-journal-text me-1"></i>
+                        Notes
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger me-auto" id="deleteTicketBtn">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" id="saveTicketChangesBtn">
+                        Save changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <?php include __DIR__ . '/partials/ticket_notes_modal.php'; ?>
+
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <script>
+        // Initialize Supabase
+        const supabaseUrl = '<?php echo defined('SUPABASE_URL') ? SUPABASE_URL : ''; ?>';
+        const supabaseKey = '<?php echo defined('SUPABASE_ANON_KEY') ? SUPABASE_ANON_KEY : ''; ?>';
+        window.supabase = supabaseUrl && supabaseKey ? supabase.createClient(supabaseUrl, supabaseKey) : null;
+
+        // Current user email
+        const currentUserEmail = '<?php echo $_SESSION['user_email'] ?? ''; ?>';
+        let currentUserId = null;
+        let currentTicket = null;
+
+        // DOM Elements
+        const ticketForm = document.getElementById('addTicketForm');
+        const ticketAlert = document.getElementById('ticketFormAlert');
+        const createTicketBtn = document.getElementById('createTicketBtn');
+        const submitTicketBtn = document.getElementById('submitTicketBtn');
+        const resetTicketBtn = document.getElementById('resetTicketForm');
+        const ticketsTableBody = document.getElementById('ticketsTableBody');
+        const refreshTicketsBtn = document.getElementById('refreshTicketsBtn');
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('ticketAttachments');
+        const fileList = document.getElementById('fileList');
+
+        // Create modal elements
+        const createTicketModalEl = document.getElementById('createTicketModal');
+        const createModal = createTicketModalEl ? new bootstrap.Modal(createTicketModalEl) : null;
+
+        // Edit modal elements
+        const editTicketModalEl = document.getElementById('editTicketModal');
+        const editTicketAlert = document.getElementById('editTicketAlert');
+        const saveTicketChangesBtn = document.getElementById('saveTicketChangesBtn');
+        const viewTicketNotesBtn = document.getElementById('viewTicketNotesBtn');
+        const deleteTicketBtn = document.getElementById('deleteTicketBtn');
+        const editModal = editTicketModalEl ? new bootstrap.Modal(editTicketModalEl) : null;
+
+        let selectedFiles = [];
+
+        // Load current user
+        async function loadCurrentUser() {
+            try {
+                const { data: userData, error: userError } = await supabase
+                    .from('users')
+                    .select('id, email')
+                    .eq('email', currentUserEmail)
+                    .single();
+                
+                if (userError) throw userError;
+                currentUserId = userData?.id;
+            } catch (err) {
+                console.error('Error loading current user:', err);
+            }
+        }
+
+        // Show alert
+        function showTicketAlert(type, message) {
+            if (!ticketAlert) return;
+            ticketAlert.className = `alert alert-${type} mb-2`;
+            ticketAlert.textContent = message;
+            ticketAlert.classList.remove('d-none');
+        }
+
+        function hideTicketAlert() {
+            if (!ticketAlert) return;
+            ticketAlert.classList.add('d-none');
+        }
+
+        // File upload handling
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-primary', 'bg-primary-subtle');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-primary', 'bg-primary-subtle');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-primary', 'bg-primary-subtle');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            selectedFiles = Array.from(files);
+            renderFileList();
+        }
+
+        function renderFileList() {
+            if (!fileList) return;
+            if (selectedFiles.length === 0) {
+                fileList.innerHTML = '';
+                return;
+            }
+            fileList.innerHTML = selectedFiles.map((file, index) => `
+                <div class="d-flex justify-content-between align-items-center small mb-1">
+                    <span><i class="bi bi-file-earmark me-1"></i>${file.name}</span>
+                    <button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="removeFile(${index})">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            renderFileList();
+        }
+
+        // Upload files
+        async function uploadAttachments(files) {
+            if (!files || files.length === 0) return [];
+
+            const formData = new FormData();
+            files.forEach(file => formData.append('files[]', file));
+
+            try {
+                const response = await fetch('upload_handler.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                return result.files || [];
+            } catch (err) {
+                console.error('Error uploading files:', err);
+                return [];
+            }
+        }
+
+        // Open create modal
+        if (createTicketBtn && createModal) {
+            createTicketBtn.addEventListener('click', () => {
+                hideTicketAlert();
+                createModal.show();
+            });
+        }
+
+        // Create ticket
+        if (ticketForm && submitTicketBtn) {
+            submitTicketBtn.addEventListener('click', async (event) => {
+                event.preventDefault();
+                hideTicketAlert();
+
+                const title = document.getElementById('ticketTitle').value.trim();
+                const description = document.getElementById('ticketDescription').value.trim();
+                const department = document.getElementById('ticketDepartment').value;
+                const category = document.getElementById('ticketCategory').value;
+                const priority = document.getElementById('ticketPriority').value;
+                const plannedStartDate = document.getElementById('ticketPlannedStartDate').value;
+                const plannedEndDate = document.getElementById('ticketPlannedEndDate').value;
+
+                if (!title || !description) {
+                    showTicketAlert('danger', 'Title and description are required.');
+                    return;
+                }
+
+                submitTicketBtn.disabled = true;
+                submitTicketBtn.innerHTML = '<i class="bi bi-send me-1"></i>Submitting...';
+
+                try {
+                    // Upload attachments
+                    let uploadedAttachments = [];
+                    if (selectedFiles.length > 0) {
+                        uploadedAttachments = await uploadAttachments(selectedFiles);
+                    }
+
+                    const { data, error } = await supabase
+                        .from('tickets')
+                        .insert([{
+                            title,
+                            description,
+                            requester: currentUserEmail,
+                            source: 'portal',
+                            department,
+                            category,
+                            priority,
+                            status: 'Open',
+                            urgency: 'medium',
+                            impact: 'medium',
+                            requested_by: currentUserId,
+                            planned_start_date: plannedStartDate || null,
+                            planned_end_date: plannedEndDate || null,
+                            attachments: uploadedAttachments.length > 0 ? uploadedAttachments : null
+                        }]);
+
+                    if (error) {
+                        console.error(error);
+                        showTicketAlert('danger', error.message || 'Failed to create ticket.');
+                        return;
+                    }
+
+                    showTicketAlert('success', 'Ticket created successfully!');
+                    ticketForm.reset();
+                    selectedFiles = [];
+                    renderFileList();
+                    await loadTickets();
+                    setTimeout(() => createModal.hide(), 1000);
+
+                } catch (err) {
+                    console.error(err);
+                    showTicketAlert('danger', 'Unexpected error creating ticket.');
+                } finally {
+                    submitTicketBtn.disabled = false;
+                    submitTicketBtn.innerHTML = '<i class="bi bi-send me-1"></i>Submit Ticket';
+                }
+            });
+        }
+
+        // Reset form
+        if (resetTicketBtn) {
+            resetTicketBtn.addEventListener('click', () => {
+                hideTicketAlert();
+                selectedFiles = [];
+                renderFileList();
+            });
+        }
+
+        // Load tickets for current user
+        async function loadTickets() {
+            if (!ticketsTableBody) return;
+            ticketsTableBody.innerHTML = '<tr><td colspan="8" class="text-center small text-muted py-3">Loading...</td></tr>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('tickets')
+                    .select('*')
+                    .eq('requester', currentUserEmail)
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    console.error(error);
+                    ticketsTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="8" class="text-center small text-danger py-3">
+                                Failed to load tickets: ${error.message}
+                            </td>
+                        </tr>`;
+                    return;
+                }
+
+                if (!data || data.length === 0) {
+                    ticketsTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="8" class="text-center small text-muted py-3">
+                                No tickets yet. Create your first ticket using the form.
+                            </td>
+                        </tr>`;
+                    return;
+                }
+
+                // Apply filters
+                const filterTitle = document.getElementById('filterTitle')?.value?.toLowerCase() || '';
+                const filterStatus = document.getElementById('filterStatus')?.value || '';
+                const filterDepartment = document.getElementById('filterDepartment')?.value || '';
+                const filterPriority = document.getElementById('filterPriority')?.value || '';
+
+                let filteredData = data.filter(ticket => {
+                    const ticketId = (ticket.ticket_id || ticket.id || '').toString().toLowerCase();
+                    if (filterTitle && !ticket.title?.toLowerCase().includes(filterTitle) && !ticketId.includes(filterTitle)) return false;
+                    if (filterStatus && ticket.status !== filterStatus) return false;
+                    if (filterDepartment && ticket.department !== filterDepartment) return false;
+                    if (filterPriority && ticket.priority !== filterPriority) return false;
+                    return true;
+                });
+
+                ticketsTableBody.innerHTML = '';
+                filteredData.forEach((ticket) => {
+                    const tr = document.createElement('tr');
+                    tr.style.cursor = 'pointer';
+                    tr.setAttribute('role', 'button');
+
+                    const statusValue = (ticket.status || '').toLowerCase();
+                    let statusClass = 'bg-secondary-subtle text-secondary';
+                    if (statusValue === 'open') statusClass = 'bg-danger-subtle text-danger';
+                    else if (statusValue === 'in progress') statusClass = 'bg-warning-subtle text-warning';
+                    else if (statusValue === 'resolved') statusClass = 'bg-success-subtle text-success';
+                    else if (statusValue === 'closed') statusClass = 'bg-secondary-subtle text-secondary';
+
+                    const prio = (ticket.priority || '').toLowerCase();
+                    let prioClass = 'bg-secondary-subtle text-secondary';
+                    if (prio === 'low') prioClass = 'bg-success-subtle text-success';
+                    else if (prio === 'medium') prioClass = 'bg-info-subtle text-info';
+                    else if (prio === 'high') prioClass = 'bg-warning-subtle text-warning';
+                    else if (prio === 'critical') prioClass = 'bg-danger-subtle text-danger';
+
+                    tr.innerHTML = `
+                        <td class="small fw-semibold">${ticket.ticket_id || ticket.id || ''}</td>
+                        <td>
+                            <div class="fw-semibold small">${ticket.title || ''}</div>
+                            <div class="text-muted small">${ticket.description ? ticket.description.substring(0, 50) + '...' : ''}</div>
+                        </td>
+                        <td class="small">${ticket.department || '-'}</td>
+                        <td class="small">${ticket.category || '-'}</td>
+                        <td>
+                            <span class="badge rounded-pill ${prioClass} small">
+                                ${ticket.priority || ''}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge ${statusClass} small">
+                                ${ticket.status || ''}
+                            </span>
+                        </td>
+                        <td class="small">${ticket.planned_start_date ? new Date(ticket.planned_start_date).toLocaleDateString() : '-'}</td>
+                        <td class="small">${ticket.planned_end_date ? new Date(ticket.planned_end_date).toLocaleDateString() : '-'}</td>
+                    `;
+
+                    tr.addEventListener('click', () => openEditModal(ticket));
+                    ticketsTableBody.appendChild(tr);
+                });
+
+            } catch (err) {
+                console.error(err);
+                ticketsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center small text-danger py-3">
+                            Unexpected error loading tickets.
+                        </td>
+                    </tr>`;
+            }
+        }
+
+        // Refresh tickets
+        if (refreshTicketsBtn) {
+            refreshTicketsBtn.addEventListener('click', loadTickets);
+        }
+
+        // Filter event listeners
+        const filterInputs = ['filterTitle', 'filterStatus', 'filterDepartment', 'filterPriority'];
+        filterInputs.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('input', loadTickets);
+            }
+        });
+
+        // Open edit modal
+        function openEditModal(ticket) {
+            if (!editModal) return;
+            currentTicket = ticket;
+
+            document.getElementById('editTicketId').value = ticket.id || '';
+            document.getElementById('editTicketTitle').value = ticket.title || '';
+            document.getElementById('editTicketDescription').value = ticket.description || '';
+            document.getElementById('editTicketDepartment').value = ticket.department || '';
+            document.getElementById('editTicketCategory').value = ticket.category || '';
+            document.getElementById('editTicketPriority').value = ticket.priority || 'medium';
+            document.getElementById('editTicketStatus').value = ticket.status || 'Open';
+
+            // Format dates for datetime-local input
+            const plannedStartDate = ticket.planned_start_date ? new Date(ticket.planned_start_date) : null;
+            const plannedEndDate = ticket.planned_end_date ? new Date(ticket.planned_end_date) : null;
+            const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
+            document.getElementById('editTicketPlannedStartDate').value = plannedStartDate ? toDateTimeLocalString(plannedStartDate) : '';
+            document.getElementById('editTicketPlannedEndDate').value = plannedEndDate ? toDateTimeLocalString(plannedEndDate) : '';
+            document.getElementById('editTicketDueDate').value = dueDate ? toDateTimeLocalString(dueDate) : '';
+
+            // Show metadata
+            document.getElementById('editTicketCreatedAt').textContent = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '';
+            document.getElementById('editTicketUpdatedAt').textContent = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : '';
+
+            hideEditAlert();
+            editModal.show();
+        }
+
+        function toDateTimeLocalString(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+
+        function showEditAlert(type, message) {
+            if (!editTicketAlert) return;
+            editTicketAlert.className = `alert alert-${type} py-2 px-3 mb-3`;
+            editTicketAlert.textContent = message;
+            editTicketAlert.classList.remove('d-none');
+        }
+
+        function hideEditAlert() {
+            if (!editTicketAlert) return;
+            editTicketAlert.classList.add('d-none');
+        }
+
+        // Save ticket changes
+        if (saveTicketChangesBtn) {
+            saveTicketChangesBtn.addEventListener('click', async () => {
+                if (!currentTicket) return;
+                hideEditAlert();
+
+                const title = document.getElementById('editTicketTitle').value.trim();
+                const description = document.getElementById('editTicketDescription').value.trim();
+                const department = document.getElementById('editTicketDepartment').value;
+                const category = document.getElementById('editTicketCategory').value;
+                const priority = document.getElementById('editTicketPriority').value;
+                const status = document.getElementById('editTicketStatus').value;
+                const plannedStartDate = document.getElementById('editTicketPlannedStartDate').value;
+                const plannedEndDate = document.getElementById('editTicketPlannedEndDate').value;
+                const dueDate = document.getElementById('editTicketDueDate').value;
+
+                if (!title || !description || !department || !priority || !status) {
+                    showEditAlert('danger', 'Please fill in all required fields.');
+                    return;
+                }
+
+                saveTicketChangesBtn.disabled = true;
+                saveTicketChangesBtn.textContent = 'Saving...';
+
+                try {
+                    const { data, error } = await supabase
+                        .from('tickets')
+                        .update({
+                            title,
+                            description,
+                            department,
+                            category,
+                            priority,
+                            status,
+                            planned_start_date: plannedStartDate || null,
+                            planned_end_date: plannedEndDate || null,
+                            due_date: dueDate || null,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', currentTicket.id);
+
+                    if (error) {
+                        console.error(error);
+                        showEditAlert('danger', error.message || 'Failed to update ticket.');
+                        return;
+                    }
+
+                    showEditAlert('success', 'Ticket updated successfully!');
+                    await loadTickets();
+                    setTimeout(() => editModal.hide(), 1000);
+
+                } catch (err) {
+                    console.error(err);
+                    showEditAlert('danger', 'Unexpected error updating ticket.');
+                } finally {
+                    saveTicketChangesBtn.disabled = false;
+                    saveTicketChangesBtn.textContent = 'Save changes';
+                }
+            });
+        }
+
+        // Delete ticket
+        if (deleteTicketBtn) {
+            deleteTicketBtn.addEventListener('click', async () => {
+                if (!currentTicket) return;
+
+                if (!confirm('Are you sure you want to delete this ticket? This action cannot be undone.')) {
+                    return;
+                }
+
+                deleteTicketBtn.disabled = true;
+                deleteTicketBtn.textContent = 'Deleting...';
+
+                try {
+                    const { error } = await supabase
+                        .from('tickets')
+                        .delete()
+                        .eq('id', currentTicket.id);
+
+                    if (error) {
+                        console.error(error);
+                        showEditAlert('danger', error.message || 'Failed to delete ticket.');
+                        return;
+                    }
+
+                    showEditAlert('success', 'Ticket deleted successfully!');
+                    await loadTickets();
+                    setTimeout(() => editModal.hide(), 1000);
+
+                } catch (err) {
+                    console.error(err);
+                    showEditAlert('danger', 'Unexpected error deleting ticket.');
+                } finally {
+                    deleteTicketBtn.disabled = false;
+                    deleteTicketBtn.innerHTML = '<i class="bi bi-trash me-1"></i>Delete';
+                }
+            });
+        }
+
+        // View notes button
+        if (viewTicketNotesBtn) {
+            viewTicketNotesBtn.addEventListener('click', () => {
+                if (!currentTicket) return;
+                editModal.hide();
+                // Open notes modal with current ticket data
+                document.getElementById('ticketNotesTicketId').value = currentTicket.id;
+                document.getElementById('ticketNotesMeta').textContent = `${currentTicket.title || ''} - ${currentTicket.status || ''}`;
+                const notesModal = new bootstrap.Modal(document.getElementById('ticketNotesModal'));
+                notesModal.show();
+                loadTicketNotes(currentTicket.id);
+            });
+        }
+
+        // Load ticket notes
+        async function loadTicketNotes(ticketId) {
+            const notesList = document.getElementById('ticketNotesList');
+            const notesEmpty = document.getElementById('ticketNotesEmpty');
+            if (!notesList) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from('ticket_notes')
+                    .select('*')
+                    .eq('ticket_id', ticketId)
+                    .order('created_at', { ascending: true });
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    notesList.innerHTML = '';
+                    if (notesEmpty) notesEmpty.classList.remove('d-none');
+                    return;
+                }
+
+                if (notesEmpty) notesEmpty.classList.add('d-none');
+                notesList.innerHTML = data.map(note => `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="fw-semibold small">${note.created_by_email || 'Unknown'}</div>
+                                <div class="small text-muted">${note.created_at ? new Date(note.created_at).toLocaleString() : ''}</div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-link text-muted" onclick="editNote('${note.id}', '${note.note.replace(/'/g, "\\'")}')">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                        </div>
+                        <div class="mt-2 small">${note.note || ''}</div>
+                    </div>
+                `).join('');
+
+            } catch (err) {
+                console.error('Error loading notes:', err);
+            }
+        }
+
+        // Add ticket note
+        const addTicketNoteBtn = document.getElementById('addTicketNoteBtn');
+        if (addTicketNoteBtn) {
+            addTicketNoteBtn.addEventListener('click', async () => {
+                const ticketId = document.getElementById('ticketNotesTicketId').value;
+                const noteText = document.getElementById('ticketNoteTextarea').value.trim();
+
+                if (!ticketId || !noteText) return;
+
+                addTicketNoteBtn.disabled = true;
+                addTicketNoteBtn.textContent = 'Adding...';
+
+                try {
+                    const { error } = await supabase
+                        .from('ticket_notes')
+                        .insert([{
+                            ticket_id: ticketId,
+                            note: noteText,
+                            created_by_email: currentUserEmail,
+                            created_at: new Date().toISOString()
+                        }]);
+
+                    if (error) throw error;
+
+                    document.getElementById('ticketNoteTextarea').value = '';
+                    loadTicketNotes(ticketId);
+
+                } catch (err) {
+                    console.error('Error adding note:', err);
+                } finally {
+                    addTicketNoteBtn.disabled = false;
+                    addTicketNoteBtn.innerHTML = '<i class="bi bi-plus-circle me-1"></i>Add Note';
+                }
+            });
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadCurrentUser();
+            await loadTickets();
+        });
+    </script>
+</body>
+</html>
