@@ -1,0 +1,199 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$email = $_SESSION['user_email'] ?? '';
+$userRole = $_SESSION['user_role'] ?? '';
+$isAdmin = (strtolower($userRole) === 'admin');
+
+$supabaseUrl = rtrim(SUPABASE_URL, '/');
+$supabaseKey = SUPABASE_ANON_KEY;
+
+function supabaseGet($url, $headers) {
+    $res = file_get_contents($url, false, stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'header' => implode("\r\n", $headers)
+        ]
+    ]));
+    return json_decode($res, true) ?: [];
+}
+
+$headers = [
+    "apikey: $supabaseKey",
+    "Authorization: Bearer $supabaseKey",
+    "Content-Type: application/json"
+];
+
+$unreadTickets = [];
+$recentTickets = [];
+$unreadCount = 0;
+
+if (!empty($email)) {
+
+    /**
+     * =========================
+     * 1. GET VIEWED TICKETS
+     * =========================
+     * (ONLY IDs, NO JOINS)
+     */
+    $viewQuery = http_build_query([
+        'select' => 'ticket_id',
+        'user_email' => 'eq.' . $email
+    ]);
+
+    $views = supabaseGet("$supabaseUrl/rest/v1/ticket_views?$viewQuery", $headers);
+
+    $viewedIds = array_column($views, 'ticket_id');
+
+    /**
+     * =========================
+     * 2. GET ALL TICKETS
+     * =========================
+     */
+    $query = http_build_query([
+        'select' => 'id,ticket_id,title,status,priority,created_at,requester,department',
+        'order' => 'created_at.desc',
+        'limit' => 50
+    ]);
+
+    $allTickets = supabaseGet("$supabaseUrl/rest/v1/tickets?$query", $headers);
+
+    /**
+     * =========================
+     * 3. FILTER UNREAD
+     * =========================
+     */
+    foreach ($allTickets as $ticket) {
+
+        $ticketId = $ticket['id'];
+
+        // already viewed → skip
+        if (in_array($ticketId, $viewedIds)) {
+            continue;
+        }
+
+        // role restriction
+        if (!$isAdmin && $ticket['requester'] !== $email) {
+            continue;
+        }
+
+        $unreadTickets[] = $ticket;
+    }
+
+    $unreadCount = count($unreadTickets);
+    $recentTickets = array_slice($unreadTickets, 0, 5);
+}
+?>
+
+<!-- =========================
+NOTIFICATION UI
+========================= -->
+
+<div class="dropdown me-2">
+
+    <button class="btn btn-sm btn-outline-secondary position-relative"
+        id="notificationBtn"
+        data-bs-toggle="dropdown">
+
+        <i class="bi bi-bell"></i>
+
+        <?php if ($unreadCount > 0): ?>
+            <span class="position-absolute top-0 start-100 translate-middle badge bg-danger">
+                <?= $unreadCount ?>
+            </span>
+        <?php endif; ?>
+
+    </button>
+
+    <ul class="dropdown-menu dropdown-menu-end"
+        style="min-width:320px; max-height:400px; overflow-y:auto;">
+
+        <li><h6 class="dropdown-header">Unread Tickets</h6></li>
+
+        <?php if (empty($recentTickets)): ?>
+            <li>
+                <span class="dropdown-item-text text-muted small">
+                    No unread tickets
+                </span>
+            </li>
+        <?php else: ?>
+
+            <?php foreach ($recentTickets as $ticket): ?>
+                <li>
+                    <a href="#"
+                       class="dropdown-item ticket-item"
+                       data-id="<?= $ticket['id'] ?>">
+
+                        <strong>
+                            <?= htmlspecialchars(substr($ticket['title'], 0, 40)) ?>
+                        </strong><br>
+
+                        <small class="text-muted">
+                            <?= date('M j H:i', strtotime($ticket['created_at'])) ?>
+                        </small>
+
+                    </a>
+                </li>
+            <?php endforeach; ?>
+
+        <?php endif; ?>
+
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item text-center small" href="tickets">View All</a></li>
+
+    </ul>
+</div>
+
+<!-- =========================
+JS (FIXED + PERSISTENT)
+========================= -->
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const badge = document.querySelector('#notificationBtn .badge');
+
+    document.querySelectorAll('.ticket-item').forEach(item => {
+
+        item.addEventListener('click', async function (e) {
+            e.preventDefault();
+
+            const ticketId = this.dataset.id;
+
+            // remove from UI immediately
+            const li = this.closest('li');
+            if (li) li.remove();
+
+            // update badge immediately (UI)
+            if (badge) {
+                let count = parseInt(badge.innerText || "0");
+                if (count > 1) {
+                    badge.innerText = count - 1;
+                } else {
+                    badge.remove();
+                }
+            }
+
+            // mark as viewed in DB
+            try {
+                await fetch('api/mark_ticket_viewed.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        ticket_id: ticketId
+                    })
+                });
+            } catch (err) {
+                console.error(err);
+            }
+
+            // redirect
+            window.location.href = 'tickets?open=' + ticketId;
+        });
+
+    });
+
+});
+</script>
