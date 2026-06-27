@@ -4,14 +4,21 @@ session_start();
 // Load env/config (Supabase keys, etc.)
 require_once __DIR__ . '/../config.php';
 
+// Debug logging
+error_log("tickets.php accessed - Session data: " . json_encode($_SESSION));
+error_log("tickets.php accessed - User email: " . ($_SESSION['user_email'] ?? 'NOT SET'));
+error_log("tickets.php accessed - User role: " . ($_SESSION['user_role'] ?? 'NOT SET'));
+
 // Protect tickets page: only allow access when logged in
 if (! isset($_SESSION['user_email'])) {
+    error_log("tickets.php - No user email in session, redirecting to login");
     header('Location:   login');
     exit;
 }
 
 // Redirect non-admins to mytickets page
 if (!isset($_SESSION['user_role']) || strtolower($_SESSION['user_role']) !== 'admin') {
+    error_log("tickets.php - User is not admin, redirecting to mytickets. Role: " . ($_SESSION['user_role'] ?? 'NOT SET'));
     header('Location:   mytickets');
     exit;
 }
