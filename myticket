@@ -789,7 +789,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                     else if (prio === 'critical') prioClass = 'bg-danger-subtle text-danger';
 
                     tr.innerHTML = `
-                        <td class="small fw-semibold">${ticket.ticket_id || ticket.id || ''}</td>
+                        <td class="small fw-semibold">THI-${ticket.ticket_id || ticket.id || ''}</td>
                         <td>
                             <div class="fw-semibold small">${ticket.title || ''}</div>
                             <div class="text-muted small">${ticket.description ? ticket.description.substring(0, 50) + '...' : ''}</div>
