@@ -1109,6 +1109,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
         // Read view filter from query string (?view=unassigned|overdue|today)
         const urlParams = new URLSearchParams(window.location.search);
         const currentView = (urlParams.get('view') || '').toLowerCase();
+        const openTicketId = urlParams.get('open');
 
         const ticketForm = document.getElementById('addTicketForm');
         const ticketAlert = document.getElementById('ticketFormAlert');
@@ -2680,7 +2681,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                     .from('users')
                     .select('email, full_name, role, status')
                     .eq('status', 'active')
-                    .eq('role', 'technician')
+                    .neq('role', 'Admin')
                     .order('full_name', { ascending: true });
 
                 if (error) {
@@ -2746,7 +2747,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
 
                 const ticketIdCell = document.createElement('td');
                 ticketIdCell.className = 'small fw-semibold';
-                ticketIdCell.textContent = 'THI-' + (ticket.ticket_id || ticket.id || '');
+                ticketIdCell.textContent = ticket.ticket_id || ticket.id || '';
 
                 const titleCell = document.createElement('td');
                 titleCell.innerHTML = `
@@ -3300,19 +3301,19 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                     // Update ticket. Admins can edit any ticket; non-admins only their own.
                     let query = supabase
                         .from('tickets')
-                        .update({ 
-                            title, 
-                            requester, 
-                            source, 
-                            description, 
-                            department, 
-                            category: category || null, 
-                            status, 
-                            urgency, 
-                            impact, 
-                            priority, 
-                            planned_start_date: plannedStartDateIso, 
-                            planned_end_date: plannedEndDateIso, 
+                        .update({
+                            title,
+                            requester,
+                            source,
+                            description,
+                            department,
+                            category: category || null,
+                            status,
+                            urgency,
+                            impact,
+                            priority,
+                            planned_start_date: plannedStartDateIso,
+                            planned_end_date: plannedEndDateIso,
                             due_date: dueDateIso,
                             attachments: allAttachments.length > 0 ? allAttachments : null
                         })
@@ -3616,6 +3617,30 @@ try {
                     createBtn.click();
                 }
             }, 500);
+        }
+
+        // Handle opening specific ticket from URL parameter (?open=<ticket-id>)
+        if (openTicketId) {
+            setTimeout(async () => {
+                try {
+                    const { data: ticket, error } = await supabase
+                        .from('tickets')
+                        .select('*')
+                        .eq('id', openTicketId)
+                        .single();
+
+                    if (error) {
+                        console.error('Error loading ticket:', error);
+                        return;
+                    }
+
+                    if (ticket) {
+                        openEditModal(ticket);
+                    }
+                } catch (err) {
+                    console.error('Error opening ticket from URL:', err);
+                }
+            }, 1000);
         }
     </script>
 </body>
