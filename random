@@ -1,0 +1,18 @@
+jobcards
+736
+ const { data, error } = await supabase
+            .from('users')
+            .select('id, email, full_name')
+            .eq('role', 'technician')
+            .order('full_name', { ascending: true });
+
+
+706
+ const { data, error } = await supabase
+            .from('users')
+            .select('id, email, full_name')
+            .eq('role', 'technician')
+            .order('full_name', { ascending: true });
+
+
+758
