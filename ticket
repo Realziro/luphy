@@ -2680,7 +2680,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                     .from('users')
                     .select('email, full_name, role, status')
                     .eq('status', 'active')
-                    .neq('role', 'Admin')
+                    .eq('role', 'technician')
                     .order('full_name', { ascending: true });
 
                 if (error) {
@@ -2746,7 +2746,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
 
                 const ticketIdCell = document.createElement('td');
                 ticketIdCell.className = 'small fw-semibold';
-                ticketIdCell.textContent = ticket.ticket_id || ticket.id || '';
+                ticketIdCell.textContent = 'THI-' + (ticket.ticket_id || ticket.id || '');
 
                 const titleCell = document.createElement('td');
                 titleCell.innerHTML = `
