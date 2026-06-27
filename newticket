@@ -8,6 +8,12 @@ require_once __DIR__ . '/../config.php';
 error_log("tickets.php accessed - Session data: " . json_encode($_SESSION));
 error_log("tickets.php accessed - User email: " . ($_SESSION['user_email'] ?? 'NOT SET'));
 error_log("tickets.php accessed - User role: " . ($_SESSION['user_role'] ?? 'NOT SET'));
+error_log("tickets.php accessed - GET params: " . json_encode($_GET));
+
+// Check if open parameter is set
+if (isset($_GET['open'])) {
+    error_log("tickets.php - open parameter detected: " . $_GET['open']);
+}
 
 // Protect tickets page: only allow access when logged in
 if (! isset($_SESSION['user_email'])) {
