@@ -1039,6 +1039,107 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                         return;
                     }
 
+                    // Send email notification to current user with admin as CC
+                    try {
+                        // Get admin email for CC
+                        const { data: adminData, error: adminError } = await supabase
+                            .from('users')
+                            .select('email')
+                            .eq('role', 'admin')
+                            .limit(1)
+                            .single();
+
+                        const adminEmail = adminData?.email || null;
+                        const ticketId = currentTicket.id || '';
+                        const ticketUrl = `https://support.texolenergies.com/mytickets?open=${ticketId}`;
+
+                        const body = `
+<div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f6f8; padding: 20px;">
+    <div style="max-width: 600px; margin: auto; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+
+        <!-- Header -->
+        <div style="background: #0d6efd; color: #ffffff; padding: 15px 20px;">
+            <h2 style="margin: 0; font-size: 18px;">Ticket Updated</h2>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 20px; color: #333;">
+            <p style="margin-top: 0;">Hello,</p>
+
+            <p>Your support ticket has been updated. Please find the details below:</p>
+
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; width: 35%; background: #f9f9f9;"><strong>Ticket ID</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">THI-${ticketId.substring(0, 8)}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Title</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${title}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Description</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${description}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Department</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${department || '-'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Category</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${category || '-'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Priority</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${priority || '-'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Status</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${status || '-'}</td>
+                </tr>
+            </table>
+
+            <div style="text-align: center; margin: 25px 0;">
+                <a href="${ticketUrl}"
+                   style="background: #0d6efd; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                    View Ticket
+                </a>
+            </div>
+
+            <p>We will review your ticket and get back to you as soon as possible.</p>
+
+            <p style="margin-bottom: 0;">Best regards,<br><strong>Support Team</strong></p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background: #f1f1f1; padding: 10px 20px; font-size: 12px; color: #777; text-align: center;">
+            Texol Energies Support System
+        </div>
+
+    </div>
+</div>
+`;
+
+                        const subject = `Ticket Updated: ${title}`;
+
+                        // Send email to current user with admin as CC
+                        await fetch('/sendmail.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({
+                                to: currentUserEmail,
+                                cc: adminEmail,
+                                subject: subject,
+                                body: body
+                            })
+                        }).then(res => res.text())
+                          .then(text => console.log('Email sent:', text));
+
+                    } catch (emailErr) {
+                        console.error('Email sending failed:', emailErr);
+                        // Don't block ticket update if email fails
+                    }
+
                     showEditAlert('success', 'Ticket updated successfully!');
                     await loadTickets();
                     setTimeout(() => editModal.hide(), 1000);
