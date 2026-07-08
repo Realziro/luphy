@@ -1,0 +1,11 @@
+    data.forEach(dept => {
+            const option = document.createElement('option');
+            option.value = dept.id;
+            option.textContent = dept.name;
+            if (dept.name === 'ICT Department') {
+                option.classList.add('fw-bold', 'text-dark');
+            } else {
+                option.classList.add('text-muted');
+            }
+            select.appendChild(option);
+        });
