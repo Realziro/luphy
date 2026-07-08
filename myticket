@@ -103,6 +103,9 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
         rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     />
+    <!-- Quill.js for rich text editor -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 
     <!-- DataTables CSS -->
     <link
@@ -234,13 +237,11 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                                             <th>Category</th>
                                             <th>Priority</th>
                                             <th>Status</th>
-                                            <th>Planned Start</th>
-                                            <th>Planned End</th>
                                         </tr>
                                     </thead>
                                     <tbody id="ticketsTableBody">
                                         <tr>
-                                            <td colspan="8" class="text-center small text-muted py-3">
+                                            <td colspan="6" class="text-center small text-muted py-3">
                                                 Loading tickets...
                                             </td>
                                         </tr>
@@ -281,21 +282,24 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             <label class="form-label small fw-semibold" for="ticketDescription">
                                 Description *
                             </label>
-                            <textarea class="form-control form-control-sm" id="ticketDescription" required rows="4" placeholder="Describe your issue"></textarea>
+                            <div id="ticketDescription" style="height: 120px;"></div>
+                            <input type="hidden" id="ticketDescriptionHidden" />
                         </div>
 
                         <div class="col-12 col-md-6">
                             <label class="form-label small fw-semibold" for="ticketDepartment">
                                 Department
                             </label>
-                            <select class="form-select form-select-sm" id="ticketDepartment">
-                                <option value="">Select Department</option>
-                                <?php foreach ($departments as $dept): ?>
-                                    <option value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>">
-                                        <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                          <select class="form-select form-select-sm" id="editTicketDepartment" required>
+    <option value="">Select department</option>
+    <?php foreach ($departments as $dept): ?>
+        <option
+            value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>"
+            <?php echo ($dept['name'] !== 'ICT Department') ? 'disabled' : ''; ?>>
+            <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
+        </option>
+    <?php endforeach; ?>
+</select>
                         </div>
 
                         <div class="col-12 col-md-6">
@@ -322,20 +326,6 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                                 <option value="high">High</option>
                                 <option value="critical">Critical</option>
                             </select>
-                        </div>
-
-                        <div class="col-12 col-md-6">
-                            <label class="form-label small fw-semibold" for="ticketPlannedStartDate">
-                                Planned Start Date
-                            </label>
-                            <input type="datetime-local" class="form-control form-control-sm" id="ticketPlannedStartDate" />
-                        </div>
-
-                        <div class="col-12 col-md-6">
-                            <label class="form-label small fw-semibold" for="ticketPlannedEndDate">
-                                Planned End Date
-                            </label>
-                            <input type="datetime-local" class="form-control form-control-sm" id="ticketPlannedEndDate" />
                         </div>
 
                         <div class="col-12">
@@ -389,19 +379,22 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
 
                         <div class="col-12">
                             <label class="form-label small fw-semibold" for="editTicketDescription">Description *</label>
-                            <textarea class="form-control form-control-sm" id="editTicketDescription" rows="4" required></textarea>
+                            <div id="editTicketDescription" style="height: 120px;"></div>
+                            <input type="hidden" id="editTicketDescriptionHidden" />
                         </div>
 
                         <div class="col-12 col-md-6">
                             <label class="form-label small fw-semibold" for="editTicketDepartment">Department *</label>
-                            <select class="form-select form-select-sm" id="editTicketDepartment" required>
-                                <option value="">Select department</option>
-                                <?php foreach ($departments as $dept): ?>
-                                    <option value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>">
-                                        <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                          <select class="form-select form-select-sm" id="editTicketDepartment" required>
+    <option value="">Select department</option>
+    <?php foreach ($departments as $dept): ?>
+        <option
+            value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>"
+            <?php echo ($dept['name'] !== 'ICT Department') ? 'disabled' : ''; ?>>
+            <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
+        </option>
+    <?php endforeach; ?>
+</select>
                         </div>
 
                         <div class="col-12 col-md-6">
@@ -437,16 +430,6 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                         </div>
 
                         <div class="col-12 col-md-6">
-                            <label class="form-label small fw-semibold" for="editTicketPlannedStartDate">Planned Start Date</label>
-                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketPlannedStartDate" />
-                        </div>
-
-                        <div class="col-12 col-md-6">
-                            <label class="form-label small fw-semibold" for="editTicketPlannedEndDate">Planned End Date</label>
-                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketPlannedEndDate" />
-                        </div>
-
-                        <div class="col-12 col-md-6">
                             <label class="form-label small fw-semibold" for="editTicketDueDate">Due Date</label>
                             <input type="datetime-local" class="form-control form-control-sm" id="editTicketDueDate" />
                         </div>
@@ -467,6 +450,14 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             </div>
                         </div>
                     </form>
+                    
+                    <!-- Rating Display Section -->
+                    <div id="ratingDisplaySection" class="mt-3 pt-3 border-top">
+                        <h6 class="fw-semibold mb-2">Ticket Ratings</h6>
+                        <div id="ratingsList" class="small">
+                            <p class="text-muted mb-0">No ratings yet.</p>
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
@@ -476,11 +467,57 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                         <i class="bi bi-journal-text me-1"></i>
                         Notes
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning me-auto" id="rateTicketBtn">
+                        <i class="bi bi-star me-1"></i>Rate Ticket
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-danger me-auto" id="deleteTicketBtn">
                         <i class="bi bi-trash me-1"></i>Delete
                     </button>
                     <button type="button" class="btn btn-sm btn-primary" id="saveTicketChangesBtn">
                         Save changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ticket Rating Modal -->
+    <div class="modal fade" id="ticketRatingModal" tabindex="-1" aria-labelledby="ticketRatingModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h6 fw-semibold" id="ticketRatingModalLabel">
+                        Rate Ticket
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="ratingAlert" class="alert d-none py-2 px-3 mb-3" role="alert"></div>
+                    <input type="hidden" id="ratingTicketId" />
+                    
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Rating</label>
+                        <div class="star-rating" id="starRating">
+                            <i class="bi bi-star fs-4 text-muted star" data-rating="1"></i>
+                            <i class="bi bi-star fs-4 text-muted star" data-rating="2"></i>
+                            <i class="bi bi-star fs-4 text-muted star" data-rating="3"></i>
+                            <i class="bi bi-star fs-4 text-muted star" data-rating="4"></i>
+                            <i class="bi bi-star fs-4 text-muted star" data-rating="5"></i>
+                        </div>
+                        <input type="hidden" id="ratingValue" value="0" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold" for="ratingComment">Comment (Optional)</label>
+                        <textarea class="form-control form-control-sm" id="ratingComment" rows="3" placeholder="Share your feedback about this ticket..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" id="submitRatingBtn">
+                        <i class="bi bi-star me-1"></i>Submit Rating
                     </button>
                 </div>
             </div>
@@ -508,6 +545,8 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
         const currentUserEmail = '<?php echo $_SESSION['user_email'] ?? ''; ?>';
         let currentUserId = null;
         let currentTicket = null;
+        let ticketQuill = null;
+        let editTicketQuill = null;
 
         // DOM Elements
         const ticketForm = document.getElementById('addTicketForm');
@@ -531,7 +570,17 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
         const saveTicketChangesBtn = document.getElementById('saveTicketChangesBtn');
         const viewTicketNotesBtn = document.getElementById('viewTicketNotesBtn');
         const deleteTicketBtn = document.getElementById('deleteTicketBtn');
+        const rateTicketBtn = document.getElementById('rateTicketBtn');
         const editModal = editTicketModalEl ? new bootstrap.Modal(editTicketModalEl) : null;
+
+        // Rating modal elements
+        const ratingModalEl = document.getElementById('ticketRatingModal');
+        const ratingAlert = document.getElementById('ratingAlert');
+        const ratingTicketId = document.getElementById('ratingTicketId');
+        const ratingValue = document.getElementById('ratingValue');
+        const ratingComment = document.getElementById('ratingComment');
+        const submitRatingBtn = document.getElementById('submitRatingBtn');
+        const ratingModal = ratingModalEl ? new bootstrap.Modal(ratingModalEl) : null;
 
         let selectedFiles = [];
 
@@ -647,12 +696,11 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                 hideTicketAlert();
 
                 const title = document.getElementById('ticketTitle').value.trim();
-                const description = document.getElementById('ticketDescription').value.trim();
+                const description = ticketQuill ? ticketQuill.root.innerHTML : '';
                 const department = document.getElementById('ticketDepartment').value;
                 const category = document.getElementById('ticketCategory').value;
+                const source = 'self';
                 const priority = document.getElementById('ticketPriority').value;
-                const plannedStartDate = document.getElementById('ticketPlannedStartDate').value;
-                const plannedEndDate = document.getElementById('ticketPlannedEndDate').value;
 
                 if (!title || !description) {
                     showTicketAlert('danger', 'Title and description are required.');
@@ -675,7 +723,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             title,
                             description,
                             requester: currentUserEmail,
-                            source: 'portal',
+                            source,
                             department,
                             category,
                             priority,
@@ -683,8 +731,8 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             urgency: 'medium',
                             impact: 'medium',
                             requested_by: currentUserId,
-                            planned_start_date: plannedStartDate || null,
-                            planned_end_date: plannedEndDate || null,
+                            planned_start_date: '0000-00-00 00:00:00',
+                            planned_end_date: '0000-00-00 00:00:00',
                             attachments: uploadedAttachments.length > 0 ? uploadedAttachments : null
                         }]);
 
@@ -696,106 +744,150 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                         return;
                     }
 
-                    // Send email notification to current user with admin as CC
-                    try {
-                        // Get admin email for CC
-                        const { data: adminData, error: adminError } = await supabase
-                            .from('users')
-                            .select('email')
-                            .eq('role', 'admin')
-                            .limit(1)
+                    // Fetch ticket_id from database
+                    let ticketId = '';
+                    if (data && data.length > 0) {
+                        const insertedId = data[0].id;
+                        const { data: ticketData, error: ticketError } = await supabase
+                            .from('tickets')
+                            .select('ticket_id')
+                            .eq('id', insertedId)
                             .single();
+                        if (!ticketError && ticketData) {
+                            ticketId = ticketData.ticket_id || '';
+                        }
+                    }
 
-                        const adminEmail = adminData?.email || null;
-                        const ticketId = data[0]?.id || '';
-                        const ticketUrl = `https://support.texolenergies.com/mytickets?open=${ticketId}`;
+                  // Send email notification to current user with all admins as CC
+try {
+    // Get all admin email addresses
+    const { data: adminData, error: adminError } = await supabase
+        .from("users")
+        .select("email")
+        .eq("role", "Admin");
 
-                        const body = `
-<div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f6f8; padding: 20px;">
-    <div style="max-width: 600px; margin: auto; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+    if (adminError) {
+        console.error("Error fetching admin emails:", adminError);
+    }
 
-        <!-- Header -->
-        <div style="background: #0d6efd; color: #ffffff; padding: 15px 20px;">
-            <h2 style="margin: 0; font-size: 18px;">New Ticket Created</h2>
+    // Create comma-separated list of admin emails
+    const adminEmails = (adminData || [])
+        .map(user => user.email?.trim())
+        .filter(email => email)
+        .join(",");
+
+    const ticketUrl = `https://support.texolenergies.com/mytickets?open=${ticketId}`;
+
+    const body = `
+<div style="font-family: Arial, sans-serif; background:#f4f6f9; padding:20px;">
+    
+    <img
+        src="https://texolenergies.com/assets/Logo-paGHQfRF.svg"
+        alt="Texol Energies"
+        style="width:140px; margin:0 auto 15px; display:block;"
+    />
+
+    <div style="max-width:650px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+
+        <!-- HEADER -->
+        <div style="background:#1f3c88; color:#ffffff; padding:25px; text-align:center;">
+            <h2 style="margin:0;">New Support Ticket Created</h2>
         </div>
 
-        <!-- Body -->
-        <div style="padding: 20px; color: #333;">
-            <p style="margin-top: 0;">Hello,</p>
+        <!-- BODY -->
+        <div style="padding:25px;">
 
-            <p>Your support ticket has been created successfully. Please find the details below:</p>
+            <!-- TICKET ID -->
+            <p style="font-size:14px; color:#555; line-height:1.6; margin-bottom:10px;">
+                <strong>Ticket ID:</strong> ${ticketId}
+            </p>
 
-            <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; width: 35%; background: #f9f9f9;"><strong>Ticket ID</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">THI-${ticket_id.substring(0, 8)}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Title</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${title}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Description</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${description}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Department</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${department || '-'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Category</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${category || '-'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Priority</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${priority || '-'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Status</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">Open</td>
-                </tr>
-            </table>
+            <h3 style="margin-top:0; color:#333;">
+                ${title}
+            </h3>
 
-            <div style="text-align: center; margin: 25px 0;">
+            <p style="font-size:14px; color:#555; line-height:1.6;">
+                ${description}
+            </p>
+
+    
+                <!-- BADGES -->
+            <div style='margin-bottom:20px;'>
+                <span style='display:inline-block; padding:6px 12px; border-radius:20px; font-size:12px; background:#e8f0ff; color:#1f3c88; margin:3px;'>
+                    Status: Open
+                </span>
+                <span style='display:inline-block; padding:6px 12px; border-radius:20px; font-size:12px; background:#fff4e5; color:#b26a00; margin:3px;'>
+                    Priority: ${priority}
+                </span>
+                <span style='display:inline-block; padding:6px 12px; border-radius:20px; font-size:12px; background:#f0f0f0; color:#555; margin:3px;'>
+                    Department: ${department}
+                </span>
+                <span style='display:inline-block; padding:6px 12px; border-radius:20px; font-size:12px; background:#f0f0f0; color:#555; margin:3px;'>
+                    Category: ${category || 'N/A'}
+                </span>
+                 <span style='display:inline-block; padding:6px 12px; border-radius:20px; font-size:12px; background:#f0f0f0; color:#555; margin:3px;'>
+                    Requested By: ${currentUserEmail || 'N/A'}
+                </span>
+            </div>
+
+            <div style="text-align:center; margin:30px 0;">
                 <a href="${ticketUrl}"
-                   style="background: #0d6efd; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                   style="background:#1f3c88; color:#ffffff; text-decoration:none; padding:12px 24px; border-radius:6px; display:inline-block;">
                     View Ticket
                 </a>
             </div>
 
-            <p>We will review your ticket and get back to you as soon as possible.</p>
+            <p style="font-size:13px; color:#777;">
+                This ticket has been successfully created and is now awaiting action.
+            </p>
 
-            <p style="margin-bottom: 0;">Best regards,<br><strong>Support Team</strong></p>
         </div>
 
-        <!-- Footer -->
-        <div style="background: #f1f1f1; padding: 10px 20px; font-size: 12px; color: #777; text-align: center;">
-            Texol Energies Support System
+        <!-- FOOTER -->
+        <div style="background:#f4f6f9; padding:15px; text-align:center; font-size:12px; color:#777;">
+            <strong>Texol Energies - THI Support</strong><br>
+            Please do not reply to this email. This is an automated notification.
         </div>
 
     </div>
-</div>
-`;
 
-                        const subject = `New Ticket Created: ${title}`;
+</div>`;
 
-                        // Send email to current user with admin as CC
-                        await fetch('/sendmail.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                to: currentUserEmail,
-                                cc: adminEmail,
-                                subject: subject,
-                                body: body
-                            })
-                        }).then(res => res.text())
-                          .then(text => console.log('Email sent:', text));
+    const subject = `New Ticket Created: ${title}`;
 
-                    } catch (emailErr) {
-                        console.error('Email sending failed:', emailErr);
-                        // Don't block ticket creation if email fails
-                    }
+    // Prepare POST parameters
+    const params = new URLSearchParams({
+        to: currentUserEmail,
+        subject: subject,
+        body: body
+    });
+
+    // Add all admins as CC
+    if (adminEmails) {
+        params.append("cc", adminEmails);
+    }
+
+    // Send email
+    const response = await fetch("sendmail.php", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: params
+    });
+
+    const result = await response.text();
+
+    if (!response.ok) {
+        throw new Error(result);
+    }
+
+    console.log("Email sent successfully:", result);
+
+} catch (emailErr) {
+    console.error("Email sending failed:", emailErr);
+    // Don't stop ticket creation if email fails
+}
 
                     showTicketAlert('success', 'Ticket created successfully!');
                     ticketForm.reset();
@@ -891,11 +983,16 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                     else if (prio === 'high') prioClass = 'bg-warning-subtle text-warning';
                     else if (prio === 'critical') prioClass = 'bg-danger-subtle text-danger';
 
+                    // Strip HTML tags from description for table display
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = ticket.description || '';
+                    const plainDescription = tempDiv.textContent || tempDiv.innerText || '';
+
                     tr.innerHTML = `
                         <td class="small fw-semibold">${ticket.ticket_id || ticket.id || ''}</td>
                         <td>
                             <div class="fw-semibold small">${ticket.title || ''}</div>
-                            <div class="text-muted small">${ticket.description ? ticket.description.substring(0, 50) + '...' : ''}</div>
+                            <div class="text-muted small">${plainDescription ? plainDescription.substring(0, 50) + '...' : ''}</div>
                         </td>
                         <td class="small">${ticket.department || '-'}</td>
                         <td class="small">${ticket.category || '-'}</td>
@@ -909,8 +1006,6 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                                 ${ticket.status || ''}
                             </span>
                         </td>
-                        <td class="small">${ticket.planned_start_date ? new Date(ticket.planned_start_date).toLocaleDateString() : '-'}</td>
-                        <td class="small">${ticket.planned_end_date ? new Date(ticket.planned_end_date).toLocaleDateString() : '-'}</td>
                     `;
 
                     tr.addEventListener('click', () => openEditModal(ticket));
@@ -921,7 +1016,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                 console.error(err);
                 ticketsTableBody.innerHTML = `
                     <tr>
-                        <td colspan="8" class="text-center small text-danger py-3">
+                        <td colspan="6" class="text-center small text-danger py-3">
                             Unexpected error loading tickets.
                         </td>
                     </tr>`;
@@ -949,26 +1044,69 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
 
             document.getElementById('editTicketId').value = ticket.id || '';
             document.getElementById('editTicketTitle').value = ticket.title || '';
-            document.getElementById('editTicketDescription').value = ticket.description || '';
+            if (editTicketQuill) editTicketQuill.root.innerHTML = ticket.description || '';
             document.getElementById('editTicketDepartment').value = ticket.department || '';
             document.getElementById('editTicketCategory').value = ticket.category || '';
             document.getElementById('editTicketPriority').value = ticket.priority || 'medium';
             document.getElementById('editTicketStatus').value = ticket.status || 'Open';
 
             // Format dates for datetime-local input
-            const plannedStartDate = ticket.planned_start_date ? new Date(ticket.planned_start_date) : null;
-            const plannedEndDate = ticket.planned_end_date ? new Date(ticket.planned_end_date) : null;
             const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
-            document.getElementById('editTicketPlannedStartDate').value = plannedStartDate ? toDateTimeLocalString(plannedStartDate) : '';
-            document.getElementById('editTicketPlannedEndDate').value = plannedEndDate ? toDateTimeLocalString(plannedEndDate) : '';
             document.getElementById('editTicketDueDate').value = dueDate ? toDateTimeLocalString(dueDate) : '';
 
             // Show metadata
             document.getElementById('editTicketCreatedAt').textContent = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '';
             document.getElementById('editTicketUpdatedAt').textContent = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : '';
 
+            // Load ratings
+            loadTicketRatings(ticket.id);
+
             hideEditAlert();
             editModal.show();
+        }
+
+        // Load ticket ratings
+        async function loadTicketRatings(ticketId) {
+            const ratingsList = document.getElementById('ratingsList');
+            if (!ratingsList) return;
+
+            ratingsList.innerHTML = '<p class="text-muted mb-0">Loading ratings...</p>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('ticket_ratings')
+                    .select('*')
+                    .eq('ticket_id', ticketId)
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    console.error('Failed to load ratings:', error);
+                    ratingsList.innerHTML = '<p class="text-danger mb-0">Failed to load ratings.</p>';
+                    return;
+                }
+
+                if (!data || data.length === 0) {
+                    ratingsList.innerHTML = '<p class="text-muted mb-0">No ratings yet.</p>';
+                    return;
+                }
+
+                ratingsList.innerHTML = data.map(rating => {
+                    const stars = '★'.repeat(rating.rating) + '☆'.repeat(5 - rating.rating);
+                    const date = rating.created_at ? new Date(rating.created_at).toLocaleString() : '';
+                    return `
+                        <div class="mb-2 pb-2 border-bottom">
+                            <div class="text-warning mb-1">${stars}</div>
+                            <div class="text-muted small">
+                                <strong>${rating.user_email || 'Anonymous'}</strong> - ${date}
+                            </div>
+                            ${rating.comment ? `<div class="mt-1">${rating.comment}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error('Error loading ratings:', err);
+                ratingsList.innerHTML = '<p class="text-danger mb-0">Error loading ratings.</p>';
+            }
         }
 
         function toDateTimeLocalString(date) {
@@ -999,13 +1137,11 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                 hideEditAlert();
 
                 const title = document.getElementById('editTicketTitle').value.trim();
-                const description = document.getElementById('editTicketDescription').value.trim();
+                const description = editTicketQuill ? editTicketQuill.root.innerHTML : '';
                 const department = document.getElementById('editTicketDepartment').value;
                 const category = document.getElementById('editTicketCategory').value;
                 const priority = document.getElementById('editTicketPriority').value;
                 const status = document.getElementById('editTicketStatus').value;
-                const plannedStartDate = document.getElementById('editTicketPlannedStartDate').value;
-                const plannedEndDate = document.getElementById('editTicketPlannedEndDate').value;
                 const dueDate = document.getElementById('editTicketDueDate').value;
 
                 if (!title || !description || !department || !priority || !status) {
@@ -1026,8 +1162,6 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             category,
                             priority,
                             status,
-                            planned_start_date: plannedStartDate || null,
-                            planned_end_date: plannedEndDate || null,
                             due_date: dueDate || null,
                             updated_at: new Date().toISOString()
                         })
@@ -1039,106 +1173,152 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                         return;
                     }
 
-                    // Send email notification to current user with admin as CC
-                    try {
-                        // Get admin email for CC
-                        const { data: adminData, error: adminError } = await supabase
-                            .from('users')
-                            .select('email')
-                            .eq('role', 'admin')
-                            .limit(1)
-                            .single();
+                 // Send email notification to current user with all admins as CC
+try {
+    // Get all admin email addresses
+    const { data: adminData, error: adminError } = await supabase
+        .from("users")
+        .select("email")
+        .eq("role", "Admin");
 
-                        const adminEmail = adminData?.email || null;
-                        const ticketId = currentTicket.id || '';
-                        const ticketUrl = `https://support.texolenergies.com/mytickets?open=${ticketId}`;
+    if (adminError) {
+        console.error("Error fetching admin emails:", adminError);
+    }
 
-                        const body = `
-<div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f6f8; padding: 20px;">
-    <div style="max-width: 600px; margin: auto; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+    // Create comma-separated list of admin emails
+    const adminEmails = (adminData || [])
+        .map(user => user.email?.trim())
+        .filter(email => email)
+        .join(",");
 
-        <!-- Header -->
-        <div style="background: #0d6efd; color: #ffffff; padding: 15px 20px;">
-            <h2 style="margin: 0; font-size: 18px;">Ticket Updated</h2>
+    const ticketId = currentTicket.ticket_id || "";
+    const ticketUrl = `https://support.texolenergies.com/mytickets?open=${ticketId}`;
+
+    const body = `
+<div style="font-family: Arial, sans-serif; background:#f4f6f9; padding:20px;">
+
+    <img
+        src="https://texolenergies.com/assets/Logo-paGHQfRF.svg"
+        alt="Texol Energies"
+        style="width:140px; margin-bottom:10px; display:block; margin-left:auto; margin-right:auto;"
+    />
+
+    <div style="max-width:650px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+
+        <!-- HEADER -->
+        <div style="background:#1f3c88; color:#ffffff; padding:25px; text-align:center;">
+            <h2 style="margin:0; font-size:20px;"> Support Ticket Updated</h2>
         </div>
 
-        <!-- Body -->
-        <div style="padding: 20px; color: #333;">
-            <p style="margin-top: 0;">Hello,</p>
+        <!-- BODY -->
+        <div style="padding:25px;">
 
-            <p>Your support ticket has been updated. Please find the details below:</p>
+            <p style="font-size:14px; color:#555; margin-bottom:10px;">
+                <strong>Ticket ID:</strong> ${ticketId}
+            </p>
 
-            <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; width: 35%; background: #f9f9f9;"><strong>Ticket ID</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">THI-${ticketId.substring(0, 8)}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Title</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${title}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Description</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${description}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Department</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${department || '-'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Category</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${category || '-'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Priority</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${priority || '-'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Status</strong></td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${status || '-'}</td>
-                </tr>
-            </table>
+            <h3 style="margin:0 0 10px; font-size:18px; color:#333;">
+                ${title}
+            </h3>
 
-            <div style="text-align: center; margin: 25px 0;">
+            <p style="font-size:14px; color:#555; line-height:1.7; margin-bottom:20px;">
+${description}            </p>
+
+            <!-- BADGES -->
+            <div style="margin-bottom:20px;">
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#e8f0ff;color:#1f3c88;margin:3px;">
+                     Status: ${status || "N/A"}
+                </span>
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#fff4e5;color:#b26a00;margin:3px;">
+                     Priority: ${priority || "N/A"}
+                </span>
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#f0f0f0;color:#555;margin:3px;">
+                     Department: ${department || "N/A"}
+                </span>
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#f0f0f0;color:#555;margin:3px;">
+                     Category: ${category || "N/A"}
+                </span>
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#e9f7ef;color:#1e7e34;margin:3px;">
+                     Requested By: ${currentUserEmail}
+                </span>
+
+            </div>
+
+            <!-- BUTTON -->
+            <div style="text-align:center; margin:30px 0;">
                 <a href="${ticketUrl}"
-                   style="background: #0d6efd; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                   style="background:#1f3c88;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
                     View Ticket
                 </a>
             </div>
 
-            <p>We will review your ticket and get back to you as soon as possible.</p>
+            <p style="font-size:13px;color:#666;line-height:1.6;">
+                This is an automated notification informing you that your support ticket has been updated. All system administrators have also been notified.
+            </p>
 
-            <p style="margin-bottom: 0;">Best regards,<br><strong>Support Team</strong></p>
+            <!-- FOOTER TAGS -->
+            <div style="margin-top:25px;text-align:center;">
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#1f3c88;color:#fff;margin:3px;">
+                    Ticket Notification
+                </span>
+
+                <span style="display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;background:#e9f7ef;color:#1e7e34;margin:3px;">
+                    System Generated
+                </span>
+
+            </div>
+
         </div>
 
-        <!-- Footer -->
-        <div style="background: #f1f1f1; padding: 10px 20px; font-size: 12px; color: #777; text-align: center;">
-            Texol Energies Support System
+        <!-- FOOTER -->
+        <div style="background:#f4f6f9;padding:15px;text-align:center;font-size:12px;color:#777;">
+            <p style="margin:0;"><strong>Texol Energies - THI Support</strong></p>
+            <p style="margin:5px 0 0;">Please do not reply to this email.</p>
         </div>
 
     </div>
-</div>
-`;
 
-                        const subject = `Ticket Updated: ${title}`;
+</div>`;
 
-                        // Send email to current user with admin as CC
-                        await fetch('/sendmail.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                to: currentUserEmail,
-                                cc: adminEmail,
-                                subject: subject,
-                                body: body
-                            })
-                        }).then(res => res.text())
-                          .then(text => console.log('Email sent:', text));
+    const subject = `Ticket Updated: ${title}`;
 
-                    } catch (emailErr) {
-                        console.error('Email sending failed:', emailErr);
-                        // Don't block ticket update if email fails
-                    }
+    const params = new URLSearchParams({
+        to: currentUserEmail,
+        subject,
+        body
+    });
+
+    // Add all admins as CC
+    if (adminEmails) {
+        params.append("cc", adminEmails);
+    }
+
+    const response = await fetch("sendmail.php", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: params
+    });
+
+    const result = await response.text();
+
+    if (!response.ok) {
+        throw new Error(result);
+    }
+
+    console.log("Email sent successfully:", result);
+
+} catch (emailErr) {
+    console.error("Email sending failed:", emailErr);
+    // Don't stop ticket update if email fails
+}
 
                     showEditAlert('success', 'Ticket updated successfully!');
                     await loadTickets();
@@ -1187,9 +1367,107 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                     showEditAlert('danger', 'Unexpected error deleting ticket.');
                 } finally {
                     deleteTicketBtn.disabled = false;
-                    deleteTicketBtn.innerHTML = '<i class="bi bi-trash me-1"></i>Delete';
+                    deleteTicketBtn.textContent = 'Delete';
                 }
             });
+        }
+
+        // Star rating functionality
+        const stars = document.querySelectorAll('.star');
+        stars.forEach(star => {
+            star.addEventListener('click', () => {
+                const rating = star.dataset.rating;
+                ratingValue.value = rating;
+                
+                // Update star visuals
+                stars.forEach(s => {
+                    const sRating = s.dataset.rating;
+                    if (sRating <= rating) {
+                        s.classList.remove('text-muted');
+                        s.classList.add('text-warning');
+                    } else {
+                        s.classList.remove('text-warning');
+                        s.classList.add('text-muted');
+                    }
+                });
+            });
+        });
+
+        // Rate ticket button
+        if (rateTicketBtn) {
+            rateTicketBtn.addEventListener('click', () => {
+                if (!currentTicket) return;
+                ratingTicketId.value = currentTicket.id;
+                ratingValue.value = 0;
+                ratingComment.value = '';
+                
+                // Reset stars
+                stars.forEach(s => {
+                    s.classList.remove('text-warning');
+                    s.classList.add('text-muted');
+                });
+                
+                ratingAlert.classList.add('d-none');
+                editModal.hide();
+                ratingModal.show();
+            });
+        }
+
+        // Submit rating
+        if (submitRatingBtn) {
+            submitRatingBtn.addEventListener('click', async () => {
+                const rating = parseInt(ratingValue.value);
+                const comment = ratingComment.value.trim();
+                const ticketId = ratingTicketId.value;
+
+                if (rating === 0) {
+                    showRatingAlert('warning', 'Please select a rating.');
+                    return;
+                }
+
+                submitRatingBtn.disabled = true;
+                submitRatingBtn.innerHTML = '<i class="bi bi-star me-1"></i>Submitting...';
+
+                try {
+                    const { error } = await supabase
+                        .from('ticket_ratings')
+                        .insert([{
+                            ticket_id: ticketId,
+                            user_email: currentUserEmail,
+                            rating: rating,
+                            comment: comment || null
+                        }]);
+
+                    if (error) {
+                        console.error(error);
+                        showRatingAlert('danger', error.message || 'Failed to submit rating.');
+                        return;
+                    }
+
+                    showRatingAlert('success', 'Rating submitted successfully!');
+                    setTimeout(() => {
+                        ratingModal.hide();
+                        editModal.show();
+                        // Reload ratings to show the new rating
+                        loadTicketRatings(currentTicket.id);
+                    }, 1000);
+
+                } catch (err) {
+                    console.error(err);
+                    showRatingAlert('danger', 'Unexpected error submitting rating.');
+                } finally {
+                    submitRatingBtn.disabled = false;
+                    submitRatingBtn.innerHTML = '<i class="bi bi-star me-1"></i>Submit Rating';
+                }
+            });
+        }
+
+        function showRatingAlert(type, message) {
+            if (!ratingAlert) return;
+            ratingAlert.className = `alert alert-${type} py-2 px-3 mb-3`;
+            ratingAlert.textContent = message;
+            ratingAlert.classList.remove('d-none');
+            setTimeout(() => ratingAlert.classList.add('d-none'), 5000);
         }
 
         // View notes button
@@ -1286,6 +1564,37 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
+            // Initialize Quill editors
+            if (document.getElementById('ticketDescription')) {
+                ticketQuill = new Quill('#ticketDescription', {
+                    theme: 'snow',
+                    placeholder: 'Describe your issue',
+                    modules: {
+                        toolbar: [
+                            ['bold', 'italic', 'underline'],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            ['link'],
+                            ['clean']
+                        ]
+                    }
+                });
+            }
+
+            if (document.getElementById('editTicketDescription')) {
+                editTicketQuill = new Quill('#editTicketDescription', {
+                    theme: 'snow',
+                    placeholder: 'Describe your issue',
+                    modules: {
+                        toolbar: [
+                            ['bold', 'italic', 'underline'],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            ['link'],
+                            ['clean']
+                        ]
+                    }
+                });
+            }
+
             await loadCurrentUser();
             await loadTickets();
         });
