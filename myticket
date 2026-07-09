@@ -237,11 +237,13 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                                             <th>Category</th>
                                             <th>Priority</th>
                                             <th>Status</th>
+                                            <th>Planned Start</th>
+                                            <th>Planned End</th>
                                         </tr>
                                     </thead>
                                     <tbody id="ticketsTableBody">
                                         <tr>
-                                            <td colspan="6" class="text-center small text-muted py-3">
+                                            <td colspan="8" class="text-center small text-muted py-3">
                                                 Loading tickets...
                                             </td>
                                         </tr>
@@ -290,16 +292,12 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             <label class="form-label small fw-semibold" for="ticketDepartment">
                                 Department
                             </label>
-                          <select class="form-select form-select-sm" id="editTicketDepartment" required>
-    <option value="">Select department</option>
-    <?php foreach ($departments as $dept): ?>
-        <option
-            value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>"
-            <?php echo ($dept['name'] !== 'ICT Department') ? 'disabled' : ''; ?>>
-            <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
-        </option>
-    <?php endforeach; ?>
-</select>
+                            <select class="form-select form-select-sm" id="ticketDepartment">
+                                <option value="">Select Department</option>
+                                    <option value="ICT Department">
+                                        ICT Department
+                                    </option>
+                            </select>
                         </div>
 
                         <div class="col-12 col-md-6">
@@ -326,6 +324,16 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                                 <option value="high">High</option>
                                 <option value="critical">Critical</option>
                             </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                          
+                            <input hidden value="0000-00-00 00:00:00" type="datetime-local" class="form-control form-control-sm" id="ticketPlannedStartDate" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                          
+                            <input hidden value="0000-00-00 00:00:00" type="datetime-local" class="form-control form-control-sm" id="ticketPlannedEndDate" />
                         </div>
 
                         <div class="col-12">
@@ -385,16 +393,11 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
 
                         <div class="col-12 col-md-6">
                             <label class="form-label small fw-semibold" for="editTicketDepartment">Department *</label>
-                          <select class="form-select form-select-sm" id="editTicketDepartment" required>
-    <option value="">Select department</option>
-    <?php foreach ($departments as $dept): ?>
-        <option
-            value="<?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>"
-            <?php echo ($dept['name'] !== 'ICT Department') ? 'disabled' : ''; ?>>
-            <?php echo htmlspecialchars($dept['name'], ENT_QUOTES, 'UTF-8'); ?>
-        </option>
-    <?php endforeach; ?>
-</select>
+                            <select class="form-select form-select-sm" id="editTicketDepartment" required>
+                                <option value="">Select department</option>
+                                    <option value="ICT Department">
+ICT                                    </option>
+                            </select>
                         </div>
 
                         <div class="col-12 col-md-6">
@@ -427,6 +430,16 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                                 <option value="Resolved">Resolved</option>
                                 <option value="Closed">Closed</option>
                             </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketPlannedStartDate">Planned Start Date</label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketPlannedStartDate" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold" for="editTicketPlannedEndDate">Planned End Date</label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="editTicketPlannedEndDate" />
                         </div>
 
                         <div class="col-12 col-md-6">
@@ -701,6 +714,8 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                 const category = document.getElementById('ticketCategory').value;
                 const source = 'self';
                 const priority = document.getElementById('ticketPriority').value;
+                const plannedStartDate = document.getElementById('ticketPlannedStartDate').value;
+                const plannedEndDate = document.getElementById('ticketPlannedEndDate').value;
 
                 if (!title || !description) {
                     showTicketAlert('danger', 'Title and description are required.');
@@ -731,10 +746,11 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                             urgency: 'medium',
                             impact: 'medium',
                             requested_by: currentUserId,
-                            planned_start_date: '0000-00-00 00:00:00',
-                            planned_end_date: '0000-00-00 00:00:00',
+                            planned_start_date: plannedStartDate || null,
+                            planned_end_date: plannedEndDate || null,
                             attachments: uploadedAttachments.length > 0 ? uploadedAttachments : null
-                        }]);
+                        }])
+                        .select();
 
 
 
@@ -744,19 +760,14 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY') && SUPABASE_URL !== 
                         return;
                     }
 
-                    // Fetch ticket_id from database
+                    // Get ticket_id from the insert response
                     let ticketId = '';
                     if (data && data.length > 0) {
-                        const insertedId = data[0].id;
-                        const { data: ticketData, error: ticketError } = await supabase
-                            .from('tickets')
-                            .select('ticket_id')
-                            .eq('id', insertedId)
-                            .single();
-                        if (!ticketError && ticketData) {
-                            ticketId = ticketData.ticket_id || '';
-                        }
+                        ticketId = data[0].ticket_id || '';
+                        console.log('🔍 [DEBUG] Retrieved ticket_id from insert:', ticketId);
                     }
+
+                    console.log('🔍 [DEBUG] Final ticketId for email:', ticketId);
 
                   // Send email notification to current user with all admins as CC
 try {
@@ -1006,6 +1017,8 @@ try {
                                 ${ticket.status || ''}
                             </span>
                         </td>
+                        <td class="small">${ticket.planned_start_date ? new Date(ticket.planned_start_date).toLocaleDateString() : '-'}</td>
+                        <td class="small">${ticket.planned_end_date ? new Date(ticket.planned_end_date).toLocaleDateString() : '-'}</td>
                     `;
 
                     tr.addEventListener('click', () => openEditModal(ticket));
@@ -1016,7 +1029,7 @@ try {
                 console.error(err);
                 ticketsTableBody.innerHTML = `
                     <tr>
-                        <td colspan="6" class="text-center small text-danger py-3">
+                        <td colspan="8" class="text-center small text-danger py-3">
                             Unexpected error loading tickets.
                         </td>
                     </tr>`;
@@ -1051,7 +1064,11 @@ try {
             document.getElementById('editTicketStatus').value = ticket.status || 'Open';
 
             // Format dates for datetime-local input
+            const plannedStartDate = ticket.planned_start_date ? new Date(ticket.planned_start_date) : null;
+            const plannedEndDate = ticket.planned_end_date ? new Date(ticket.planned_end_date) : null;
             const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
+            document.getElementById('editTicketPlannedStartDate').value = plannedStartDate ? toDateTimeLocalString(plannedStartDate) : '';
+            document.getElementById('editTicketPlannedEndDate').value = plannedEndDate ? toDateTimeLocalString(plannedEndDate) : '';
             document.getElementById('editTicketDueDate').value = dueDate ? toDateTimeLocalString(dueDate) : '';
 
             // Show metadata
@@ -1142,6 +1159,8 @@ try {
                 const category = document.getElementById('editTicketCategory').value;
                 const priority = document.getElementById('editTicketPriority').value;
                 const status = document.getElementById('editTicketStatus').value;
+                const plannedStartDate = document.getElementById('editTicketPlannedStartDate').value;
+                const plannedEndDate = document.getElementById('editTicketPlannedEndDate').value;
                 const dueDate = document.getElementById('editTicketDueDate').value;
 
                 if (!title || !description || !department || !priority || !status) {
@@ -1162,6 +1181,8 @@ try {
                             category,
                             priority,
                             status,
+                            planned_start_date: plannedStartDate || null,
+                            planned_end_date: plannedEndDate || null,
                             due_date: dueDate || null,
                             updated_at: new Date().toISOString()
                         })
