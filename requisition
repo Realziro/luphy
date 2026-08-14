@@ -146,6 +146,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reqId = $_POST['req_id'] ?? '';
         $password = $_POST['password'] ?? '';
 
+        // Clear any previous output
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+
         if (empty($password)) {
             $response = ['success' => false, 'message' => 'Password is required to approve requisition.'];
         } elseif ($reqId && defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
@@ -178,29 +183,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif (!hash_equals($storedPassword, $password)) {
                 $response = ['success' => false, 'message' => 'Incorrect password.'];
             } else {
-                $data = [
-                    'status' => 'approved',
-                    'approved_by' => $userId,
-                    'approved_at' => date('c')
-                ];
-
+                // Fetch current requisition to check existing approvals
+                $query = http_build_query(['select' => '*', 'id' => 'eq.' . $reqId]);
                 $ch = curl_init();
                 curl_setopt_array($ch, [
-                    CURLOPT_URL => $supabaseUrl . '/rest/v1/requisitions?id=eq.' . $reqId,
+                    CURLOPT_URL => $supabaseUrl . '/rest/v1/requisitions?' . $query,
                     CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_CUSTOMREQUEST => 'PATCH',
                     CURLOPT_HTTPHEADER => [
                         'apikey: ' . $supabaseKey,
                         'Authorization: Bearer ' . $supabaseKey,
-                        'Content-Type: application/json',
-                        'Prefer: return=representation',
+                        'Accept: application/json',
                     ],
-                    CURLOPT_POSTFIELDS => json_encode($data),
                 ]);
-                curl_exec($ch);
+                $reqResponse = curl_exec($ch);
+                $reqData = json_decode($reqResponse, true);
                 curl_close($ch);
 
-                $response = ['success' => true, 'message' => 'Requisition approved!'];
+                if (empty($reqData) || !is_array($reqData) || empty($reqData[0])) {
+                    $response = ['success' => false, 'message' => 'Requisition not found.'];
+                } else {
+                    $requisition = $reqData[0];
+                    $sharedWith = $requisition['shared_with'] ?? '';
+                    $approvedByUsers = $requisition['approved_by_users'] ?? [];
+
+                    // Parse shared_with (comma-separated)
+                    $sharedWithArray = !empty($sharedWith) ? explode(',', $sharedWith) : [];
+                    $approvedByArray = is_array($approvedByUsers) ? $approvedByUsers : (!empty($approvedByUsers) ? json_decode($approvedByUsers, true) : []);
+
+                    // Check if user already approved (check user_id in objects)
+                    $alreadyApproved = false;
+                    foreach ($approvedByArray as $approval) {
+                        if (is_array($approval) && isset($approval['user_id']) && $approval['user_id'] === $userId) {
+                            $alreadyApproved = true;
+                            break;
+                        } elseif (is_string($approval) && $approval === $userId) {
+                            // Handle old format (just user IDs)
+                            $alreadyApproved = true;
+                            break;
+                        }
+                    }
+
+                    if ($alreadyApproved) {
+                        $response = ['success' => false, 'message' => 'You have already approved this requisition.'];
+                    } else {
+                        // Add user to approved list with timestamp
+                        $approvedByArray[] = [
+                            'user_id' => $userId,
+                            'approved_at' => date('c')
+                        ];
+
+                        // Calculate approval progress
+                        $totalApprovers = count($sharedWithArray);
+                        $approvedCount = count($approvedByArray);
+                        $progress = $totalApprovers > 0 ? ($approvedCount / $totalApprovers) * 100 : 0;
+
+                        // Determine status based on progress
+                        $status = 'pending';
+                        if ($progress >= 100) {
+                            $status = 'approved';
+                        } elseif ($progress > 0) {
+                            $status = 'partially_approved';
+                        }
+
+                        $data = [
+                            'approved_by_users' => json_encode($approvedByArray),
+                            'approved_by' => $userId, // Keep single approved_by for backward compatibility
+                            'status' => $status,
+                            'approval_progress' => $progress
+                        ];
+
+                        // If fully approved, set approved_at
+                        if ($status === 'approved') {
+                            $data['approved_at'] = date('c');
+                        }
+
+                        $ch = curl_init();
+                        curl_setopt_array($ch, [
+                            CURLOPT_URL => $supabaseUrl . '/rest/v1/requisitions?id=eq.' . $reqId,
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_CUSTOMREQUEST => 'PATCH',
+                            CURLOPT_HTTPHEADER => [
+                                'apikey: ' . $supabaseKey,
+                                'Authorization: Bearer ' . $supabaseKey,
+                                'Content-Type: application/json',
+                                'Prefer: return=representation',
+                            ],
+                            CURLOPT_POSTFIELDS => json_encode($data),
+                        ]);
+                        curl_exec($ch);
+                        curl_close($ch);
+
+                        $response = ['success' => true, 'message' => 'Requisition approved!'];
+                    }
+                }
             }
         } else {
             $response = ['success' => false, 'message' => 'Invalid request.'];
@@ -221,9 +296,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($reqId && defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             $supabaseUrl = rtrim(SUPABASE_URL, '/');
             $supabaseKey = SUPABASE_ANON_KEY;
-            
+
             $data = ['status' => 'rejected'];
-            
+
             $ch = curl_init();
             curl_setopt_array($ch, [
                 CURLOPT_URL => $supabaseUrl . '/rest/v1/requisitions?id=eq.' . $reqId,
@@ -238,9 +313,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             curl_exec($ch);
             curl_close($ch);
-            
-            $message = 'Requisition rejected!';
-            $messageType = 'success';
+
+            $response = ['success' => true, 'message' => 'Requisition rejected!'];
+        } else {
+            $response = ['success' => false, 'message' => 'Invalid request.'];
+        }
+
+        // Return JSON for AJAX requests
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode($response);
+            exit;
+        } else {
+            $message = $response['message'];
+            $messageType = $response['success'] ? 'success' : 'error';
+        }
+    } elseif ($action === 'restore') {
+        // Restore rejected requisition
+        $reqId = $_POST['req_id'] ?? '';
+        if ($reqId && defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
+            $supabaseUrl = rtrim(SUPABASE_URL, '/');
+            $supabaseKey = SUPABASE_ANON_KEY;
+
+            $data = ['status' => 'pending'];
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $supabaseUrl . '/rest/v1/requisitions?id=eq.' . $reqId,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CUSTOMREQUEST => 'PATCH',
+                CURLOPT_HTTPHEADER => [
+                    'apikey: ' . $supabaseKey,
+                    'Authorization: Bearer ' . $supabaseKey,
+                    'Content-Type: application/json',
+                ],
+                CURLOPT_POSTFIELDS => json_encode($data),
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
+
+            $response = ['success' => true, 'message' => 'Requisition restored!'];
+        } else {
+            $response = ['success' => false, 'message' => 'Invalid request.'];
+        }
+
+        // Return JSON for AJAX requests
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode($response);
+            exit;
+        } else {
+            $message = $response['message'];
+            $messageType = $response['success'] ? 'success' : 'error';
         }
     }
 }
@@ -437,7 +561,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             // Fetch requested by user
             if (!empty($req['requested_by'])) {
                 $query = http_build_query([
-                    'select' => 'id,full_name,email',
+                    'select' => 'id,full_name,email,signature',
                     'id' => 'eq.' . $req['requested_by']
                 ]);
                 $ch = curl_init();
@@ -502,6 +626,12 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
     <link
         rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    />
+
+    <!-- DataTables CSS -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css"
     />
 
     <!-- Reuse layout styles -->
@@ -624,10 +754,10 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label small fw-semibold">Share With (For Approval)</label>
-                                <small class="text-muted d-block mb-1">Search users by name or email to share for approval</small>
+                                <small class="text-muted d-block mb-1">Search users by name or email to share for approval (multiple users allowed)</small>
                                 <input type="text" class="form-control form-control-sm" id="sharedWithInput" placeholder="Search users..." autocomplete="off">
                                 <div id="sharedWithDropdown" class="dropdown-menu w-100" style="position: absolute; z-index: 1000; max-height: 200px; overflow-y: auto;"></div>
-                                <div id="selectedUser" class="mt-1"></div>
+                                <div id="selectedUsers" class="mt-1"></div>
                                 <input type="hidden" name="shared_with" id="sharedWith" value="">
                             </div>
                             <div class="col-12">
@@ -699,7 +829,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
+                            <table class="table table-sm align-middle mb-0" id="requisitionsTable">
                                 <thead class="table-light">
                                     <tr>
                                         <th class="small text-uppercase text-muted">RQ #</th>
@@ -707,15 +837,20 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                                         <th class="small text-uppercase text-muted">Department</th>
                                         <th class="small text-uppercase text-muted">Required Date</th>
                                         <th class="small text-uppercase text-muted">Status</th>
+                                        <th class="small text-uppercase text-muted">Approval Progress</th>
                                         <th class="small text-uppercase text-muted">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php if (empty($requisitions)): ?>
                                         <tr>
-                                            <td colspan="6" class="text-center text-muted small py-3">
-                                                No requisitions found.
-                                            </td>
+                                            <td class="text-center text-muted small py-3">-</td>
+                                            <td class="text-center text-muted small py-3">-</td>
+                                            <td class="text-center text-muted small py-3">-</td>
+                                            <td class="text-center text-muted small py-3">-</td>
+                                            <td class="text-center text-muted small py-3">-</td>
+                                            <td class="text-center text-muted small py-3">-</td>
+                                            <td class="text-center text-muted small py-3">-</td>
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($requisitions as $req): ?>
@@ -737,11 +872,40 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                                                         $badgeClass = 'bg-secondary';
                                                         if ($status === 'pending') $badgeClass = 'bg-warning text-dark';
                                                         elseif ($status === 'approved') $badgeClass = 'bg-success';
+                                                        elseif ($status === 'partially_approved') $badgeClass = 'bg-info';
                                                         elseif ($status === 'rejected') $badgeClass = 'bg-danger';
                                                         echo $badgeClass;
                                                     ?> small">
-                                                        <?php echo ucfirst($req['status'] ?? '-'); ?>
+                                                        <?php
+                                                        if ($status === 'partially_approved') echo 'Partially Approved';
+                                                        else echo ucfirst($req['status'] ?? '-');
+                                                        ?>
                                                     </span>
+                                                </td>
+                                                <td class="small">
+                                                    <?php
+                                                    $sharedWith = $req['shared_with'] ?? '';
+                                                    $approvedByUsers = $req['approved_by_users'] ?? [];
+                                                    $sharedWithArray = !empty($sharedWith) ? explode(',', $sharedWith) : [];
+                                                    $approvedByArray = is_array($approvedByUsers) ? $approvedByUsers : (!empty($approvedByUsers) ? json_decode($approvedByUsers, true) : []);
+                                                    $totalApprovers = count($sharedWithArray);
+                                                    $approvedCount = count($approvedByArray);
+                                                    $progress = $totalApprovers > 0 ? ($approvedCount / $totalApprovers) * 100 : 0;
+                                                    ?>
+                                                    <?php if ($totalApprovers > 0): ?>
+                                                        <div class="progress" style="height: 20px; width: 100px;">
+                                                            <div class="progress-bar <?php echo $progress >= 100 ? 'bg-success' : ($progress > 0 ? 'bg-info' : 'bg-secondary'); ?>"
+                                                                 role="progressbar"
+                                                                 style="width: <?php echo $progress; ?>%"
+                                                                 aria-valuenow="<?php echo $progress; ?>"
+                                                                 aria-valuemin="0"
+                                                                 aria-valuemax="100">
+                                                                <?php echo $approvedCount; ?>/<?php echo $totalApprovers; ?>
+                                                            </div>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted small">-</span>
+                                                    <?php endif; ?>
                                                 </td>
                                                 <td class="small">
                                                     <button class="btn btn-sm btn-outline-primary me-1" onclick="viewRequisition(<?php echo htmlspecialchars(json_encode($req)); ?>)">
@@ -750,17 +914,24 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                                                     <button class="btn btn-sm btn-outline-secondary me-1" onclick="openUploadModal('<?php echo htmlspecialchars($req['id']); ?>')">
                                                         <i class="bi bi-upload"></i> Upload
                                                     </button>
-                                                    <?php if (($req['status'] ?? '') === 'pending'): ?>
+                                                    <?php
+                                                    // Show approve button if user is in shared_with and hasn't approved yet
+                                                    $currentUserInShared = in_array($currentUserId, $sharedWithArray);
+                                                    $currentUserApproved = false;
+                                                    foreach ($approvedByArray as $approval) {
+                                                        if (is_array($approval) && isset($approval['user_id']) && $approval['user_id'] === $currentUserId) {
+                                                            $currentUserApproved = true;
+                                                            break;
+                                                        } elseif (is_string($approval) && $approval === $currentUserId) {
+                                                            // Handle old format (just user IDs)
+                                                            $currentUserApproved = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                    if ($currentUserInShared && !$currentUserApproved && ($req['status'] ?? '') !== 'approved'): ?>
                                                         <button type="button" class="btn btn-sm btn-outline-success me-1" onclick="openApproveModal('<?php echo htmlspecialchars($req['id']); ?>')">
                                                             <i class="bi bi-check-circle"></i>
                                                         </button>
-                                                        <form method="POST" class="d-inline">
-                                                            <input type="hidden" name="action" value="reject">
-                                                            <input type="hidden" name="req_id" value="<?php echo htmlspecialchars($req['id']); ?>">
-                                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                                <i class="bi bi-x-circle"></i>
-                                                            </button>
-                                                        </form>
                                                     <?php endif; ?>
                                                 </td>
                                             </tr>
@@ -777,6 +948,28 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
     <script src="app.js"></script>
+
+    <!-- jQuery (required for DataTables) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script>
+        // Initialize DataTables
+        $(document).ready(function() {
+            $('#requisitionsTable').DataTable({
+                pageLength: 10,
+                lengthMenu: [5, 10, 25, 50, 100],
+                language: {
+                    search: "_INPUT_",
+                    searchPlaceholder: "Search requisitions..."
+                },
+                columnDefs: [
+                    { orderable: false, targets: 6 } // Disable sorting on Actions column
+                ]
+            });
+        });
+    </script>
     <script>
         // Global functions for HTML event handlers
         window.updateUnitFromItem = function(select) {
@@ -866,7 +1059,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
 
         // Load users for shared_with selection
         let allUsers = [];
-        let selectedUser = null;
+        let selectedUsers = [];
 
         async function loadUsers() {
             try {
@@ -884,10 +1077,10 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
 
         loadUsers();
 
-        // Searchable user selection
+        // Searchable user selection (multiple users)
         const sharedWithInput = document.getElementById('sharedWithInput');
         const sharedWithDropdown = document.getElementById('sharedWithDropdown');
-        const selectedUserDiv = document.getElementById('selectedUser');
+        const selectedUsersDiv = document.getElementById('selectedUsers');
         const sharedWithHidden = document.getElementById('sharedWith');
 
         if (sharedWithInput) {
@@ -914,7 +1107,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                         option.textContent = `${user.full_name || user.email} (${user.email})`;
                         option.addEventListener('click', function(e) {
                             e.preventDefault();
-                            selectUser(user);
+                            addUser(user);
                         });
                         sharedWithDropdown.appendChild(option);
                     });
@@ -932,27 +1125,43 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             });
         }
 
-        function selectUser(user) {
-            selectedUser = user;
-            sharedWithInput.value = user.full_name || user.email;
-            sharedWithHidden.value = user.id;
+        function addUser(user) {
+            // Check if user already selected
+            if (selectedUsers.find(u => u.id === user.id)) {
+                return;
+            }
+
+            selectedUsers.push(user);
+            sharedWithInput.value = '';
             sharedWithDropdown.classList.remove('show');
 
-            // Show selected user as a badge
-            selectedUserDiv.innerHTML = `
-                <span class="badge bg-primary">
-                    ${user.full_name || user.email}
-                    <button type="button" class="btn-close btn-close-white ms-1" onclick="clearSelectedUser()"></button>
-                </span>
-            `;
+            updateSelectedUsersDisplay();
         }
 
-        window.clearSelectedUser = function() {
-            selectedUser = null;
-            sharedWithInput.value = '';
-            sharedWithHidden.value = '';
-            selectedUserDiv.innerHTML = '';
-        };
+        function removeUser(userId) {
+            selectedUsers = selectedUsers.filter(u => u.id !== userId);
+            updateSelectedUsersDisplay();
+        }
+
+        function updateSelectedUsersDisplay() {
+            selectedUsersDiv.innerHTML = '';
+            const userIds = [];
+
+            selectedUsers.forEach(user => {
+                userIds.push(user.id);
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-primary me-1 mb-1';
+                badge.innerHTML = `
+                    ${user.full_name || user.email}
+                    <button type="button" class="btn-close btn-close-white ms-1" onclick="removeUser('${user.id}')"></button>
+                `;
+                selectedUsersDiv.appendChild(badge);
+            });
+
+            sharedWithHidden.value = userIds.join(',');
+        }
+
+        window.removeUser = removeUser;
 
         // Handle form submission
         const requisitionForm = document.getElementById('requisitionForm');
@@ -1178,19 +1387,53 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             const requestedByName = req.requested_by_user ? (req.requested_by_user.full_name || req.requested_by_user.email) : '-';
             const supplierName = req.supplier ? req.supplier.name : '-';
 
-            // Approved by section
-            let approvedByHtml = '';
-            if (req.status === 'approved' && req.approved_by_user) {
-                const approverName = req.approved_by_user.full_name || req.approved_by_user.email || '-';
-                const approvedAt = req.approved_at ? new Date(req.approved_at).toLocaleString() : '-';
-                approvedByHtml = `
-                    <div class="col-6">
-                        <small class="text-muted">Approved By:</small>
-                        <div class="fw-semibold">${approverName}</div>
+            // Parse shared_with to get first and second users for review/approval
+            const sharedWith = req.shared_with || '';
+            const sharedWithArray = sharedWith ? sharedWith.split(',').map(id => id.trim()) : [];
+            const firstSharedUserId = sharedWithArray.length > 0 ? sharedWithArray[0] : null;
+            const secondSharedUserId = sharedWithArray.length > 1 ? sharedWithArray[1] : null;
+
+            // Signature section for print
+            let signatureHtml = '';
+            if (req.requested_by_user && req.requested_by_user.signature) {
+                signatureHtml = `
+                    <div class="mt-3 print-only">
+                        <h6 class="fw-semibold">Requested By Signature</h6>
+                        <div class="d-flex align-items-center gap-3">
+                            <div>
+                                <small class="text-muted">Name:</small>
+                                <div class="fw-semibold">${requestedByName}</div>
+                            </div>
+                            <div>
+                                <img src="${req.requested_by_user.signature}" alt="Signature" style="max-height: 60px; max-width: 150px;">
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-6">
-                        <small class="text-muted">Approved At:</small>
-                        <div>${approvedAt}</div>
+                `;
+            }
+
+            // Reviewed By and Approved By sections
+            let reviewApprovalHtml = '';
+            if (firstSharedUserId || secondSharedUserId) {
+                reviewApprovalHtml = `
+                    <div class="mt-3 print-only">
+                        <h6 class="fw-semibold">Approval Chain</h6>
+                        <div class="row g-3">
+                            ${firstSharedUserId ? `
+                                <div class="col-6">
+                                    <small class="text-muted">Reviewed By (1st Approver):</small>
+                                    <div class="fw-semibold" id="reviewedBy-${firstSharedUserId}">Loading...</div>
+                                    <div id="reviewedBySig-${firstSharedUserId}"></div>
+                                </div>
+                            ` : ''}
+                            ${secondSharedUserId ? `
+                                <div class="col-6">
+                                    <small class="text-muted">Approved By (2nd Approver):</small>
+                                    <div class="fw-semibold" id="approvedBy-${secondSharedUserId}">Loading...</div>
+                                    <div id="approvedBySig-${secondSharedUserId}"></div>
+                                </div>
+                            ` : ''}
+                        </div>
                     </div>
                 `;
             }
@@ -1221,22 +1464,56 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                         <small class="text-muted">Requested By:</small>
                         <div>${requestedByName}</div>
                     </div>
-                    ${approvedByHtml}
                 </div>
                 <h6 class="fw-semibold mt-3">Items</h6>
                 ${itemsHtml}
                 ${attachmentsHtml}
-                ${req.status === 'approved' && req.approved_by_user && req.approved_by_user.signature ? `
-                    <div class="mt-3 print-only">
-                        <h6 class="fw-semibold">Approver Signature</h6>
-                        <img src="${req.approved_by_user.signature}" alt="Signature" style="max-height: 80px; max-width: 200px;">
-                    </div>
-                ` : ''}
+                ${signatureHtml}
+                ${reviewApprovalHtml}
             `;
-            
+
+            // Fetch user details for approval chain
+            if (firstSharedUserId) {
+                fetchUserDetails(firstSharedUserId, 'reviewedBy');
+            }
+            if (secondSharedUserId) {
+                fetchUserDetails(secondSharedUserId, 'approvedBy');
+            }
+
             const bsModal = new bootstrap.Modal(modal);
             bsModal.show();
         };
+
+        async function fetchUserDetails(userId, prefix) {
+            if (!supabase) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('id, full_name, email, signature')
+                    .eq('id', userId)
+                    .single();
+
+                if (error) throw error;
+
+                const nameElement = document.getElementById(`${prefix}-${userId}`);
+                const sigElement = document.getElementById(`${prefix}Sig-${userId}`);
+
+                if (nameElement) {
+                    nameElement.textContent = data.full_name || data.email || '-';
+                }
+
+                if (sigElement && data.signature) {
+                    sigElement.innerHTML = `<img src="${data.signature}" alt="Signature" style="max-height: 60px; max-width: 150px; margin-top: 5px;">`;
+                }
+            } catch (err) {
+                console.error('Error fetching user details:', err);
+                const nameElement = document.getElementById(`${prefix}-${userId}`);
+                if (nameElement) {
+                    nameElement.textContent = 'Error loading user';
+                }
+            }
+        }
 
         function createViewModal() {
             const modalHtml = `
@@ -1270,7 +1547,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
 
             // Get requester info
             const requestedByName = req.requested_by_user ? (req.requested_by_user.full_name || req.requested_by_user.email) : '-';
-            const requesterDepartment = req.requested_by_user ? (req.requested_by_user.department || '-') : '-';
+            const requesterDepartment = req.department || '-';
             const createdDate = req.created_at ? new Date(req.created_at).toLocaleDateString() : '-';
             const requiredDate = req.required_date || '-';
 
@@ -1286,6 +1563,32 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             const approverName = req.approved_by_user ? (req.approved_by_user.full_name || req.approved_by_user.email) : '';
             const approvedDate = req.approved_at ? new Date(req.approved_at).toLocaleDateString() : '';
             const approverSignature = (req.approved_by_user && req.approved_by_user.signature) ? req.approved_by_user.signature : '';
+
+            // Parse approved_by_users to get actual approvers (not just shared_with)
+            const approvedByUsers = req.approved_by_users || [];
+            const approvedByArray = Array.isArray(approvedByUsers) ? approvedByUsers : (typeof approvedByUsers === 'string' ? JSON.parse(approvedByUsers) : []);
+
+            // Extract user IDs and dates from approved_by array (handle both old format and new object format)
+            const actualApprovers = approvedByArray.map(approval => {
+                if (typeof approval === 'object' && approval.user_id) {
+                    return {
+                        user_id: approval.user_id,
+                        approved_at: approval.approved_at
+                    };
+                }
+                return { user_id: approval, approved_at: null }; // old format (just user ID string)
+            });
+
+            // Get first and second actual approvers for review/approval in print
+            const firstApprover = actualApprovers.length > 0 ? actualApprovers[0] : null;
+            const secondApprover = actualApprovers.length > 1 ? actualApprovers[1] : null;
+
+            // Format approval dates
+            const firstApprovalDate = firstApprover && firstApprover.approved_at ? new Date(firstApprover.approved_at).toLocaleDateString() : '';
+            const secondApprovalDate = secondApprover && secondApprover.approved_at ? new Date(secondApprover.approved_at).toLocaleDateString() : '';
+
+            // Get requester signature
+            const requesterSignature = (req.requested_by_user && req.requested_by_user.signature) ? req.requested_by_user.signature : '';
 
             // Generate items rows
             let itemsRows = '';
@@ -1598,31 +1901,18 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                     </tr>
                     <tr>
                       <td colspan="2" class="mandatory-desc">e.g. (warranty, sample required, country of origin, after sale support, delivery date, training, standardization, site visit etc.)</td>
-                      <td class="budget-avail-col"><b>Budget<br>Available (Y/N)</b></td>
-                      <td class="budget-amt-col"><b>Amount<br>Budgeted</b></td>
-                      <td class="store-item-col"><b>Item<br>Available in<br>store (Y/N)</b></td>
-                      <td class="store-qty-col"><b>Qty<br>Available</b></td>
+                      <td class="budget-avail-col" rowspan="3"><b>Budget<br>Available (Y/N)</b></td>
+                      <td class="budget-amt-col" rowspan="3"><b>Amount<br>Budgeted</b><p></p><br>${grandTotal.toFixed(2)}</td>
+                      <td class="store-item-col" rowspan="3"><b>Item<br>Available in<br>store (Y/N)</b></td>
+                      <td class="store-qty-col" rowspan="3"><b>Qty<br>Available</b></td>
                     </tr>
                     <tr>
                       <td class="num-col">1</td><td class="mand-col"></td>
-                      <td class="budget-avail-col"></td><td class="budget-amt-col">${grandTotal.toFixed(2)}</td>
-                      <td class="store-item-col"></td><td class="store-qty-col"></td>
                     </tr>
                     <tr>
                       <td class="num-col">2</td><td class="mand-col"></td>
-                      <td class="budget-avail-col"></td><td class="budget-amt-col"></td>
-                      <td class="store-item-col"></td><td class="store-qty-col"></td>
                     </tr>
-                    <tr>
-                      <td class="num-col">3</td><td class="mand-col"></td>
-                      <td class="budget-avail-col"></td><td class="budget-amt-col"></td>
-                      <td class="store-item-col"></td><td class="store-qty-col"></td>
-                    </tr>
-                    <tr>
-                      <td class="num-col">4</td><td class="mand-col"></td>
-                      <td class="budget-avail-col"></td><td class="budget-amt-col"></td>
-                      <td class="store-item-col"></td><td class="store-qty-col"></td>
-                    </tr>
+                  
                   </table>
 
                   <!-- Reason for procurement -->
@@ -1640,13 +1930,13 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                       <th>Approved by</th>
                     </tr>
                     <tr>
-                      <td>Name: ${requestedByName}</td><td>Name:</td><td>Name: ${approverName}</td>
+                      <td>Name: ${requestedByName}</td><td>Name: <span id="printReviewedByName"></span></td><td>Name: <span id="printApprovedByName"></span></td>
                     </tr>
                     <tr>
-                      <td>Signature:</td><td>Signature:</td><td>Signature: ${approverSignature ? '<img src="' + approverSignature + '" alt="Signature" style="max-height: 40px; max-width: 100px;">' : ''}</td>
+                      <td>Signature: ${requesterSignature ? '<img src="' + requesterSignature + '" alt="Signature" style="max-height: 40px; max-width: 100px;">' : ''}</td><td>Signature: <span id="printReviewedBySig"></span></td><td>Signature: <span id="printApprovedBySig"></span></td>
                     </tr>
                     <tr>
-                      <td>Date: ${createdDate}</td><td>Date:</td><td>Date: ${approvedDate}</td>
+                      <td>Date: ${createdDate}</td><td>Date: <span id="printReviewedByDate">${firstApprovalDate}</span></td><td>Date: <span id="printApprovedByDate">${secondApprovalDate}</span></td>
                     </tr>
                   </table>
 
@@ -1661,7 +1951,81 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                 </html>
             `);
             printWindow.document.close();
-            printWindow.print();
+
+            // Fetch user details for print approval chain
+            if (firstApprover) {
+                fetchPrintUserDetails(printWindow, firstApprover, 'printReviewedBy');
+            }
+            if (secondApprover) {
+                fetchPrintUserDetails(printWindow, secondApprover, 'printApprovedBy');
+            }
+
+            printWindow.focus();
+        };
+
+        async function fetchPrintUserDetails(printWindow, approver, prefix) {
+            if (!supabase || !approver) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('id, full_name, email, signature')
+                    .eq('id', approver.user_id)
+                    .single();
+
+                if (error) throw error;
+
+                const nameElement = printWindow.document.getElementById(`${prefix}Name`);
+                const sigElement = printWindow.document.getElementById(`${prefix}Sig`);
+                const dateElement = printWindow.document.getElementById(`${prefix}Date`);
+
+                if (nameElement) {
+                    nameElement.textContent = data.full_name || data.email || '-';
+                }
+
+                if (sigElement && data.signature) {
+                    sigElement.innerHTML = `<img src="${data.signature}" alt="Signature" style="max-height: 40px; max-width: 100px;">`;
+                }
+
+                if (dateElement && approver.approved_at) {
+                    dateElement.textContent = new Date(approver.approved_at).toLocaleDateString();
+                }
+            } catch (err) {
+                console.error('Error fetching user details for print:', err);
+                const nameElement = printWindow.document.getElementById(`${prefix}Name`);
+                if (nameElement) {
+                    nameElement.textContent = 'Error loading user';
+                }
+            }
+        }
+
+        // Restore requisition
+        window.restoreRequisition = function(reqId) {
+            if (!confirm('Are you sure you want to restore this requisition?')) {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'restore');
+            formData.append('req_id', reqId);
+
+            fetch('requisition.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    location.reload();
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while restoring the requisition.');
+            });
         };
 
         // Add Supplier Modal
