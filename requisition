@@ -366,6 +366,147 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = $response['message'];
             $messageType = $response['success'] ? 'success' : 'error';
         }
+    } elseif ($action === 'create') {
+        // Create new requisition (standalone, without ticket ID)
+        // Clear any previous output
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: application/json');
+
+        $department = $_POST['department'] ?? '';
+        $requiredDate = $_POST['required_date'] ?? '';
+        $supplierId = $_POST['supplier_id'] ?? '';
+        $sharedWith = $_POST['shared_with'] ?? '';
+        $ticketId = $_POST['ticket_id'] ?? '';
+
+        $itemIds = $_POST['item_id'] ?? [];
+        $quantities = $_POST['quantity'] ?? [];
+        $units = $_POST['unit'] ?? [];
+        $unitPrices = $_POST['unit_price'] ?? [];
+
+        if (empty($department) || empty($requiredDate) || empty($itemIds) || empty($quantities)) {
+            echo json_encode(['success' => false, 'message' => 'Please fill in all required fields.']);
+            exit;
+        }
+
+        if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
+            $supabaseUrl = rtrim(SUPABASE_URL, '/');
+            $supabaseKey = SUPABASE_ANON_KEY;
+
+            // Get current user ID
+            $query = http_build_query(['select' => 'id', 'email' => 'eq.' . $userEmail]);
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $supabaseUrl . '/rest/v1/users?' . $query,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => [
+                    'apikey: ' . $supabaseKey,
+                    'Authorization: Bearer ' . $supabaseKey,
+                    'Accept: application/json',
+                ],
+            ]);
+            $response = curl_exec($ch);
+            $userData = json_decode($response, true);
+            $userId = $userData[0]['id'] ?? null;
+            curl_close($ch);
+
+            if (!$userId) {
+                echo json_encode(['success' => false, 'message' => 'User not found.']);
+                exit;
+            }
+
+            // Calculate approval progress
+            $sharedWithArray = $sharedWith ? explode(',', $sharedWith) : [];
+            $totalApprovers = count($sharedWithArray);
+            $progress = 0;
+
+            // Generate requisition number
+            $requisitionNumber = 'RQ-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+
+            // Create requisition
+            $requisitionData = [
+                'requisition_number' => $requisitionNumber,
+                'requested_by' => $userId,
+                'department' => $department,
+                'required_date' => $requiredDate,
+                'supplier_id' => $supplierId ?: null,
+                'shared_with' => $sharedWith ?: null,
+                'ticket_id' => $ticketId ?: null,
+                'status' => 'pending',
+                'approval_progress' => $progress,
+                'approved_by_users' => json_encode([]),
+            ];
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $supabaseUrl . '/rest/v1/requisitions',
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => [
+                    'apikey: ' . $supabaseKey,
+                    'Authorization: Bearer ' . $supabaseKey,
+                    'Content-Type: application/json',
+                    'Prefer: return=representation',
+                ],
+                CURLOPT_POSTFIELDS => json_encode($requisitionData),
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $requisitionResult = json_decode($response, true);
+            curl_close($ch);
+
+            error_log('Create requisition - HTTP Code: ' . $httpCode);
+            error_log('Create requisition - Response: ' . $response);
+
+            if (isset($requisitionResult[0]['id'])) {
+                $requisitionId = $requisitionResult[0]['id'];
+
+                // Create requisition items
+                foreach ($itemIds as $index => $itemId) {
+                    if (empty($itemId) || empty($quantities[$index])) continue;
+
+                    $itemData = [
+                        'requisition_id' => $requisitionId,
+                        'item_id' => $itemId,
+                        'quantity' => $quantities[$index],
+                        'unit' => $units[$index] ?? 'pieces',
+                        'unit_price' => $unitPrices[$index] ?? 0,
+                    ];
+
+                    $ch = curl_init();
+                    curl_setopt_array($ch, [
+                        CURLOPT_URL => $supabaseUrl . '/rest/v1/requisition_items',
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POST => true,
+                        CURLOPT_HTTPHEADER => [
+                            'apikey: ' . $supabaseKey,
+                            'Authorization: Bearer ' . $supabaseKey,
+                            'Content-Type: application/json',
+                        ],
+                        CURLOPT_POSTFIELDS => json_encode($itemData),
+                    ]);
+                    curl_exec($ch);
+                    curl_close($ch);
+                }
+
+                echo json_encode(['success' => true, 'message' => 'Requisition created successfully!']);
+            } else {
+                $errorMessage = 'Failed to create requisition.';
+                if (isset($requisitionResult['message'])) {
+                    $errorMessage .= ' ' . $requisitionResult['message'];
+                }
+                if (isset($requisitionResult['details'])) {
+                    $errorMessage .= ' Details: ' . $requisitionResult['details'];
+                }
+                error_log('Create requisition - Error: ' . $errorMessage);
+                echo json_encode(['success' => false, 'message' => $errorMessage]);
+            }
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Supabase configuration not found.']);
+        }
+        exit;
     }
 }
 
@@ -449,10 +590,12 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
     if ($ticketId) {
         $queryParams['ticket_id'] = 'eq.' . $ticketId;
     } else {
-        // Only filter by shared_with when no ticket_id is specified
-        // Try using 'like' operator for string-based shared_with field
+        // Show requisitions where user is requester OR in shared_with
+        // Since Supabase doesn't support OR in simple queries, we need to fetch all and filter in PHP
+        // or use a more complex query. For now, let's remove the shared_with filter
+        // and filter in PHP to show user's own requisitions + shared ones
         if ($currentUserId) {
-            $queryParams['shared_with'] = 'like.*' . $currentUserId . '*';
+            // Don't filter in query - will filter in PHP
         }
     }
 
@@ -481,7 +624,25 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
         error_log('Requisitions fetch error: ' . $response);
         $requisitions = [];
     } else {
-        error_log('Requisitions count: ' . count($requisitions));
+        error_log('Requisitions count before filter: ' . count($requisitions));
+    }
+
+    // Filter requisitions: show where user is requester OR in shared_with
+    if ($currentUserId && !$ticketId) {
+        $filteredRequisitions = [];
+        foreach ($requisitions as $req) {
+            if (!is_array($req)) continue;
+            $isRequester = ($req['requested_by'] ?? '') === $currentUserId;
+            $sharedWith = $req['shared_with'] ?? '';
+            $sharedWithArray = !empty($sharedWith) ? explode(',', $sharedWith) : [];
+            $isInSharedWith = in_array($currentUserId, $sharedWithArray);
+
+            if ($isRequester || $isInSharedWith) {
+                $filteredRequisitions[] = $req;
+            }
+        }
+        $requisitions = $filteredRequisitions;
+        error_log('Requisitions count after filter: ' . count($requisitions));
     }
     
     // Fetch items for each requisition
@@ -755,8 +916,10 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                             <div class="col-md-6">
                                 <label class="form-label small fw-semibold">Share With (For Approval)</label>
                                 <small class="text-muted d-block mb-1">Search users by name or email to share for approval (multiple users allowed)</small>
-                                <input type="text" class="form-control form-control-sm" id="sharedWithInput" placeholder="Search users..." autocomplete="off">
-                                <div id="sharedWithDropdown" class="dropdown-menu w-100" style="position: absolute; z-index: 1000; max-height: 200px; overflow-y: auto;"></div>
+                                <div class="position-relative">
+                                    <input type="text" class="form-control form-control-sm" id="sharedWithInput" placeholder="Search users..." autocomplete="off">
+                                    <div id="sharedWithDropdown" class="dropdown-menu w-100" style="position: absolute; z-index: 1000; max-height: 200px; overflow-y: auto;"></div>
+                                </div>
                                 <div id="selectedUsers" class="mt-1"></div>
                                 <input type="hidden" name="shared_with" id="sharedWith" value="">
                             </div>
@@ -822,10 +985,13 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
 
                 <!-- Requisitions Table -->
                 <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">
                             <i class="bi bi-list-check me-2"></i>All Requisitions
                         </h5>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="openCreateRequisitionModal()">
+                            <i class="bi bi-plus-circle me-1"></i> New Requisition
+                        </button>
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
@@ -916,6 +1082,8 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                                                     </button>
                                                     <?php
                                                     // Show approve button if user is in shared_with and hasn't approved yet
+                                                    // Requester cannot approve their own requisition unless explicitly in approvers list
+                                                    $isRequester = ($req['requested_by'] ?? '') === $currentUserId;
                                                     $currentUserInShared = in_array($currentUserId, $sharedWithArray);
                                                     $currentUserApproved = false;
                                                     foreach ($approvedByArray as $approval) {
@@ -928,7 +1096,10 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                                                             break;
                                                         }
                                                     }
-                                                    if ($currentUserInShared && !$currentUserApproved && ($req['status'] ?? '') !== 'approved'): ?>
+                                                    // User can approve if: in shared_with AND hasn't approved AND status not approved
+                                                    // Requester can only approve if they are explicitly in the shared_with list
+                                                    $canApprove = $currentUserInShared && !$currentUserApproved && ($req['status'] ?? '') !== 'approved';
+                                                    if ($canApprove): ?>
                                                         <button type="button" class="btn btn-sm btn-outline-success me-1" onclick="openApproveModal('<?php echo htmlspecialchars($req['id']); ?>')">
                                                             <i class="bi bi-check-circle"></i>
                                                         </button>
@@ -985,16 +1156,16 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             if (price) priceInput.value = price;
         };
 
-        window.addItem = function() {
-            const container = document.getElementById('itemsContainer');
+        window.addItem = function(containerId = 'itemsContainer') {
+            const container = document.getElementById(containerId);
             const newRow = document.createElement('div');
             newRow.className = 'item-row row g-2 mb-2';
-            
+
             let itemOptions = '<option value="">Select Item</option>';
             window.itemsData.forEach(item => {
                 itemOptions += `<option value="${item.id}" data-unit="${item.unit}" data-price="${item.unit_price || 0}">${item.name}</option>`;
             });
-            
+
             newRow.innerHTML = `
                 <div class="col-md-3">
                     <div class="input-group">
@@ -1032,8 +1203,8 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
         };
 
         window.removeItem = function(button) {
-            const container = document.getElementById('itemsContainer');
-            if (container.children.length > 1) {
+            const container = button.closest('[id$="ItemsContainer"]');
+            if (container && container.children.length > 1) {
                 button.closest('.item-row').remove();
             } else {
                 alert('At least one item is required');
@@ -1050,10 +1221,7 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
         const ticketIdParam = '<?php echo $ticketId; ?>';
         const currentUserId = '<?php echo $_SESSION['user_id'] ?? ''; ?>';
 
-        console.log('🔍 [DEBUG] Current user ID:', currentUserId);
-        console.log('🔍 [DEBUG] User email:', userEmail);
-        console.log('🔍 [DEBUG] Requisitions data from PHP:', <?php echo json_encode($requisitions); ?>);
-        
+       
         // Get items data from PHP for JavaScript
         window.itemsData = <?php echo json_encode($items); ?>;
 
@@ -1077,19 +1245,26 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
 
         loadUsers();
 
-        // Searchable user selection (multiple users)
-        const sharedWithInput = document.getElementById('sharedWithInput');
-        const sharedWithDropdown = document.getElementById('sharedWithDropdown');
-        const selectedUsersDiv = document.getElementById('selectedUsers');
-        const sharedWithHidden = document.getElementById('sharedWith');
+        // Reusable function to initialize user search
+        window.initUserSearch = function(inputId, dropdownId, selectedDivId, hiddenInputId) {
+            const input = document.getElementById(inputId);
+            const dropdown = document.getElementById(dropdownId);
+            const selectedDiv = document.getElementById(selectedDivId);
+            const hiddenInput = document.getElementById(hiddenInputId);
 
-        if (sharedWithInput) {
-            sharedWithInput.addEventListener('input', function() {
+            if (!input || !dropdown || !selectedDiv || !hiddenInput) {
+                console.error('User search elements not found');
+                return;
+            }
+
+            let localSelectedUsers = [];
+
+            input.addEventListener('input', function() {
                 const searchTerm = this.value.toLowerCase();
-                sharedWithDropdown.innerHTML = '';
+                dropdown.innerHTML = '';
 
                 if (searchTerm.length < 2) {
-                    sharedWithDropdown.classList.remove('show');
+                    dropdown.classList.remove('show');
                     return;
                 }
 
@@ -1107,22 +1282,75 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
                         option.textContent = `${user.full_name || user.email} (${user.email})`;
                         option.addEventListener('click', function(e) {
                             e.preventDefault();
-                            addUser(user);
+                            addUserToSelection(user);
                         });
-                        sharedWithDropdown.appendChild(option);
+                        dropdown.appendChild(option);
                     });
-                    sharedWithDropdown.classList.add('show');
+                    dropdown.classList.add('show');
                 } else {
-                    sharedWithDropdown.classList.remove('show');
+                    dropdown.classList.remove('show');
                 }
             });
 
             // Close dropdown when clicking outside
             document.addEventListener('click', function(e) {
-                if (!sharedWithInput.contains(e.target) && !sharedWithDropdown.contains(e.target)) {
-                    sharedWithDropdown.classList.remove('show');
+                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.remove('show');
                 }
             });
+
+            function addUserToSelection(user) {
+                // Check if user already selected
+                if (localSelectedUsers.find(u => u.id === user.id)) {
+                    return;
+                }
+
+                localSelectedUsers.push(user);
+                input.value = '';
+                dropdown.classList.remove('show');
+
+                updateSelectedUsersDisplay();
+            }
+
+            function removeUserFromSelection(userId) {
+                localSelectedUsers = localSelectedUsers.filter(u => u.id !== userId);
+                updateSelectedUsersDisplay();
+            }
+
+            function updateSelectedUsersDisplay() {
+                selectedDiv.innerHTML = '';
+                const userIds = [];
+
+                localSelectedUsers.forEach(user => {
+                    userIds.push(user.id);
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-primary me-1 mb-1';
+                    badge.innerHTML = `
+                        ${user.full_name || user.email}
+                        <button type="button" class="btn-close btn-close-white ms-1" data-user-id="${user.id}"></button>
+                    `;
+                    selectedDiv.appendChild(badge);
+                });
+
+                hiddenInput.value = userIds.join(',');
+
+                // Add event listeners to remove buttons
+                selectedDiv.querySelectorAll('.btn-close').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        removeUserFromSelection(this.dataset.userId);
+                    });
+                });
+            }
+        };
+
+        // Searchable user selection (multiple users) - original form
+        const sharedWithInput = document.getElementById('sharedWithInput');
+        const sharedWithDropdown = document.getElementById('sharedWithDropdown');
+        const selectedUsersDiv = document.getElementById('selectedUsers');
+        const sharedWithHidden = document.getElementById('sharedWith');
+
+        if (sharedWithInput) {
+            window.initUserSearch('sharedWithInput', 'sharedWithDropdown', 'selectedUsers', 'sharedWith');
         }
 
         function addUser(user) {
@@ -2025,6 +2253,150 @@ if (defined('SUPABASE_URL') && defined('SUPABASE_ANON_KEY')) {
             .catch(error => {
                 console.error('Error:', error);
                 alert('An error occurred while restoring the requisition.');
+            });
+        };
+
+        // Create Requisition Modal (without ticket ID)
+        window.openCreateRequisitionModal = function() {
+            const modalHtml = `
+                <div class="modal fade" id="createRequisitionModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Create New Requisition</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="standaloneRequisitionForm" class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold">Department / Branch</label>
+                                        <input type="text" class="form-control form-control-sm" name="department" placeholder="e.g., Production, Warehouse" required>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold">Required Date</label>
+                                        <input type="date" class="form-control form-control-sm" name="required_date" required>
+                                    </div>
+                                    <input type="hidden" name="ticket_id" value="">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold">Supplier</label>
+                                        <div class="input-group">
+                                            <select class="form-select form-select-sm" name="supplier_id" id="standaloneSupplierSelect">
+                                                <option value="">Select Supplier</option>
+                                                <?php foreach ($suppliers as $supplier): ?>
+                                                    <option value="<?php echo htmlspecialchars($supplier['id']); ?>">
+                                                        <?php echo htmlspecialchars($supplier['name']); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openAddSupplierModal()">
+                                                <i class="bi bi-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold">Share With (For Approval)</label>
+                                        <small class="text-muted d-block mb-1">Search users by name or email to share for approval (multiple users allowed)</small>
+                                        <div class="position-relative">
+                                            <input type="text" class="form-control form-control-sm" id="standaloneSharedWithInput" placeholder="Search users..." autocomplete="off">
+                                            <div id="standaloneSharedWithDropdown" class="dropdown-menu w-100" style="position: absolute; z-index: 1000; max-height: 200px; overflow-y: auto;"></div>
+                                        </div>
+                                        <div id="standaloneSelectedUsers" class="mt-1"></div>
+                                        <input type="hidden" name="shared_with" id="standaloneSharedWith" value="">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small fw-semibold">Items</label>
+                                        <div id="standaloneItemsContainer">
+                                            <div class="item-row row g-2 mb-2">
+                                                <div class="col-md-3">
+                                                    <div class="input-group">
+                                                        <select class="form-select form-select-sm item-select" name="item_id[]" onchange="window.updateUnitFromItem(this)">
+                                                            <option value="">Select Item</option>
+                                                            <?php foreach ($items as $item): ?>
+                                                                <option value="<?php echo htmlspecialchars($item['id']); ?>" data-unit="<?php echo htmlspecialchars($item['unit']); ?>" data-price="<?php echo htmlspecialchars($item['unit_price'] ?? 0); ?>">
+                                                                    <?php echo htmlspecialchars($item['name']); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.openAddItemModal(this)">
+                                                            <i class="bi bi-plus"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <input type="number" step="0.01" class="form-control form-control-sm" name="quantity[]" placeholder="Quantity" required>
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <select class="form-select form-select-sm unit-select" name="unit[]">
+                                                        <option value="kg">kg</option>
+                                                        <option value="liters">liters</option>
+                                                        <option value="pieces">pieces</option>
+                                                        <option value="meters">meters</option>
+                                                        <option value="units">units</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <input type="number" step="0.01" class="form-control form-control-sm price-input" name="unit_price[]" placeholder="Unit Price">
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="window.removeItem(this)">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="window.addItem('standaloneItemsContainer')">
+                                            <i class="bi bi-plus"></i> Add Item
+                                        </button>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small fw-semibold">Attachments</label>
+                                        <input type="file" class="form-control form-control-sm" name="attachments[]" multiple>
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="submit" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-check-circle"></i> Create Requisition
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            const modal = new bootstrap.Modal(document.getElementById('createRequisitionModal'));
+            modal.show();
+            document.getElementById('createRequisitionModal').addEventListener('hidden.bs.modal', function() {
+                this.remove();
+            });
+
+            // Initialize user search for standalone modal
+            initUserSearch('standaloneSharedWithInput', 'standaloneSharedWithDropdown', 'standaloneSelectedUsers', 'standaloneSharedWith');
+
+            // Handle form submission
+            document.getElementById('standaloneRequisitionForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                formData.append('action', 'create');
+
+                fetch('requisition.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message);
+                        bootstrap.Modal.getInstance(document.getElementById('createRequisitionModal')).hide();
+                        location.reload();
+                    } else {
+                        alert(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while creating the requisition.');
+                });
             });
         };
 
